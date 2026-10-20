@@ -9,7 +9,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use chrono::{DateTime, NaiveTime, Utc};
+use chrono::{DateTime, Duration, NaiveTime, Utc};
 use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
@@ -27,7 +27,14 @@ pub fn router(store: Store) -> Router {
         .route("/assets/:id/authorize", post(authorize_asset))
         .route("/assets/:id/scan", post(trigger_scan))
         .route("/assets/:id/findings", get(asset_findings))
+        .route(
+            "/assets/:id/schedules",
+            post(add_schedule).get(list_schedules),
+        )
+        .route("/assets/:id/alerts", get(asset_alerts))
+        .route("/schedules/:id/enabled", post(set_schedule_enabled))
         .route("/scans/:id", get(get_scan))
+        .route("/alerts", get(list_alerts))
         .with_state(store)
 }
 
@@ -192,6 +199,77 @@ async fn get_scan(State(store): State<Store>, Path(id): Path<Uuid>) -> ApiResult
         }
         None => Ok(not_found("scan")),
     }
+}
+
+// ---- schedules ----
+
+#[derive(Deserialize)]
+struct NewSchedule {
+    kind: ScanKind,
+    interval_secs: i64,
+    /// If false, the schedule is created paused. Defaults to true.
+    #[serde(default = "default_true")]
+    enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+async fn add_schedule(
+    State(store): State<Store>,
+    Path(asset_id): Path<Uuid>,
+    Json(body): Json<NewSchedule>,
+) -> ApiResult {
+    if store.get_asset(asset_id)?.is_none() {
+        return Ok(not_found("asset"));
+    }
+    if body.interval_secs < 1 {
+        return Ok((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "interval_secs must be >= 1" })),
+        )
+            .into_response());
+    }
+    // First run is due immediately on the next scheduler tick.
+    let schedule = Schedule {
+        id: Uuid::new_v4(),
+        asset_id,
+        kind: body.kind,
+        interval_secs: body.interval_secs,
+        next_run_at: Utc::now() - Duration::seconds(1),
+        enabled: body.enabled,
+    };
+    store.insert_schedule(&schedule)?;
+    Ok((StatusCode::CREATED, Json(schedule)).into_response())
+}
+
+async fn list_schedules(State(store): State<Store>, Path(asset_id): Path<Uuid>) -> ApiResult {
+    Ok(Json(store.list_schedules_for_asset(asset_id)?).into_response())
+}
+
+#[derive(Deserialize)]
+struct EnabledBody {
+    enabled: bool,
+}
+
+async fn set_schedule_enabled(
+    State(store): State<Store>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<EnabledBody>,
+) -> ApiResult {
+    store.set_schedule_enabled(id, body.enabled)?;
+    Ok(Json(json!({ "id": id, "enabled": body.enabled })).into_response())
+}
+
+// ---- alerts ----
+
+async fn list_alerts(State(store): State<Store>) -> ApiResult {
+    Ok(Json(store.list_alerts()?).into_response())
+}
+
+async fn asset_alerts(State(store): State<Store>, Path(asset_id): Path<Uuid>) -> ApiResult {
+    Ok(Json(store.list_alerts_for_asset(asset_id)?).into_response())
 }
 
 // ---- helpers ----

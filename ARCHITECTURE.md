@@ -77,14 +77,40 @@ parsing fallibile (UUID/date/enum) sta fuori dalla closure di rusqlite.
 | Milestone | Contenuto | Stato |
 |---|---|---|
 | **M1** | Gate autorizzazione, modello dati, store SQLite, API, scan superficie esterna + diff | ✅ fatto |
-| M2 | Scheduler periodico per asset + storicizzazione baseline | da fare |
-| M3 | Alerting (webhook/email/Slack) su diff `is_noteworthy` | da fare |
+| **M2** | Scheduler periodico per asset (`schedules`) + API | ✅ fatto |
+| **M3** | Alerting su diff `is_noteworthy`: alert persistiti (`alerts`) + log + API | ✅ fatto (consegna webhook/email: prossimo) |
+| M3b | Consegna alert: webhook/email/Slack (seam in `src/alert.rs`) | da fare |
 | M4 | Scanner **Vuln/CVE** (fingerprint versioni → feed CVE) | stub gated |
 | M5 | Scanner **Disponibilità/DoS** (uptime, latenza, anomalie) | stub gated |
 | M6 | Scanner **igiene web/WordPress** (nikto/wpscan periodici) | stub gated |
 | M7 | Agente interno (modello ibrido) + mTLS | da fare |
 | M8 | Report periodici per cliente + dashboard | da fare |
 | M9 | Autenticazione/RBAC sull'API, multi-tenant hardening | da fare |
+
+## Scheduler (`src/scheduler.rs`) e Alerting (`src/alert.rs`)
+
+- **Scheduler:** un task in background si sveglia a cadenza fissa
+  (`NETDEFENSE_TICK_SECS`, default 30s), seleziona gli `schedules` scaduti e
+  abilitati, esegue lo scan (sempre tramite il gate) e li ripianifica a
+  `now + interval_secs`. Un fallimento transitorio non blocca i run futuri.
+- **Alerting:** quando il diff è `is_noteworthy` (porte nuove o rimosse, mai
+  sul primo scan-baseline) viene creato un `Alert` persistito, con severità
+  derivata (nuova esposizione = Medium, sola rimozione = Low), e loggato. La
+  consegna su canali esterni (webhook/email/Slack) si innesta dopo
+  `alert::from_diff` — il seam è già pronto in `src/alert.rs`.
+
+## Crate `kali-mcp/` (motore tool, personalizzabile)
+
+Il repo è un **workspace Cargo**: oltre al servizio (`src/`) include il crate
+`kali-mcp/` — il server MCP che espone i tool Kali (nmap, masscan, nikto,
+sqlmap, hydra, …). Il registro dei tool è in
+[`kali-mcp/src/tools.rs`](kali-mcp/src/tools.rs): ogni tool è un `ToolDef`
+(nome, binario, descrizione, JSON-Schema dei parametri, funzione che costruisce
+gli argomenti CLI). Si personalizza aggiungendo/modificando i `ToolDef` lì,
+senza toccare il codice di protocollo. `netdefense` e `kali-mcp` condividono lo
+stesso schema di esecuzione subprocess+timeout ma restano crate separati:
+`kali-mcp` è il motore interattivo via MCP, `netdefense` è il servizio gestito
+in cui ogni esecuzione passa dal gate di autorizzazione.
 
 I tipi di scan non ancora implementati (`Vuln`, `Availability`, `WebHygiene`)
 passano comunque dal gate e restituiscono `failed` con nota "scanner not yet

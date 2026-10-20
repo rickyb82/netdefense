@@ -155,3 +155,28 @@ pub struct Finding {
     pub severity: Severity,
     pub observed_at: DateTime<Utc>,
 }
+
+/// A recurring scan of an asset. The scheduler runs due schedules (and the
+/// scan still passes the authorisation gate every time).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Schedule {
+    pub id: Id,
+    pub asset_id: Id,
+    pub kind: ScanKind,
+    pub interval_secs: i64,
+    pub next_run_at: DateTime<Utc>,
+    pub enabled: bool,
+}
+
+/// A noteworthy change surfaced by the baseline diff — what proactive
+/// monitoring exists to deliver to the client.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Alert {
+    pub id: Id,
+    pub asset_id: Id,
+    pub scan_id: Id,
+    pub severity: Severity,
+    pub summary: String,
+    pub detail: String,
+    pub created_at: DateTime<Utc>,
+}

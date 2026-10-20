@@ -12,6 +12,7 @@ use chrono::Utc;
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::alert;
 use crate::authz::{self};
 use crate::domain::*;
 use crate::store::Store;
@@ -32,6 +33,7 @@ pub struct ScanOutcome {
     pub scan: Scan,
     pub findings: Vec<Finding>,
     pub diff: Option<DiffSummary>,
+    pub alert: Option<Alert>,
 }
 
 const DEFAULT_SCAN_TIMEOUT: u64 = 300;
@@ -65,6 +67,7 @@ pub async fn run_scan(store: &Store, asset_id: Id, kind: ScanKind) -> Result<Sca
                 scan,
                 findings: vec![],
                 diff: None,
+                alert: None,
             });
         }
     };
@@ -97,6 +100,7 @@ pub async fn run_scan(store: &Store, asset_id: Id, kind: ScanKind) -> Result<Sca
                 scan,
                 findings: vec![],
                 diff: None,
+                alert: None,
             });
         }
     };
@@ -113,6 +117,7 @@ pub async fn run_scan(store: &Store, asset_id: Id, kind: ScanKind) -> Result<Sca
                 scan,
                 findings: vec![],
                 diff: None,
+                alert: None,
             });
         }
     };
@@ -136,14 +141,15 @@ pub async fn run_scan(store: &Store, asset_id: Id, kind: ScanKind) -> Result<Sca
         findings.push(f);
     }
 
-    // --- diff against the previous baseline ---
+    // --- diff against the previous baseline, raising an alert on change ---
     let baseline = store.baseline_keys(asset_id, kind, scan_id)?;
     let summary = diff::compare(&baseline, &drafts);
+    let mut alert = None;
     if summary.is_noteworthy() {
-        eprintln!(
-            "netdefense: asset {asset_id} {kind:?} change — added={:?} removed={:?}",
-            summary.added, summary.removed
-        );
+        let a = alert::from_diff(asset_id, scan_id, kind, &summary);
+        store.insert_alert(&a)?;
+        alert::log(&a);
+        alert = Some(a);
     }
 
     store.finish_scan(scan_id, ScanStatus::Completed, None)?;
@@ -154,5 +160,6 @@ pub async fn run_scan(store: &Store, asset_id: Id, kind: ScanKind) -> Result<Sca
         scan,
         findings,
         diff: Some(summary),
+        alert,
     })
 }

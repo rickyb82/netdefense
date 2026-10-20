@@ -102,9 +102,28 @@ impl Store {
                 severity    TEXT NOT NULL,
                 observed_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS schedules (
+                id            TEXT PRIMARY KEY,
+                asset_id      TEXT NOT NULL REFERENCES assets(id),
+                kind          TEXT NOT NULL,
+                interval_secs INTEGER NOT NULL,
+                next_run_at   TEXT NOT NULL,
+                enabled       INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS alerts (
+                id         TEXT PRIMARY KEY,
+                asset_id   TEXT NOT NULL REFERENCES assets(id),
+                scan_id    TEXT NOT NULL REFERENCES scans(id),
+                severity   TEXT NOT NULL,
+                summary    TEXT NOT NULL,
+                detail     TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
             CREATE INDEX IF NOT EXISTS idx_assets_client ON assets(client_id);
             CREATE INDEX IF NOT EXISTS idx_scans_asset ON scans(asset_id);
             CREATE INDEX IF NOT EXISTS idx_findings_scan ON findings(scan_id);
+            CREATE INDEX IF NOT EXISTS idx_schedules_due ON schedules(next_run_at);
+            CREATE INDEX IF NOT EXISTS idx_alerts_asset ON alerts(asset_id);
             "#,
         )?;
         Ok(())
@@ -370,6 +389,133 @@ impl Store {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         raws.into_iter().map(hydrate_finding).collect()
     }
+
+    // ---- schedules ----
+
+    pub fn insert_schedule(&self, s: &Schedule) -> Result<()> {
+        self.lock()?.execute(
+            "INSERT INTO schedules (id, asset_id, kind, interval_secs, next_run_at, enabled)
+             VALUES (?1,?2,?3,?4,?5,?6)",
+            params![
+                s.id.to_string(),
+                s.asset_id.to_string(),
+                s.kind.as_str(),
+                s.interval_secs,
+                ts(&s.next_run_at),
+                s.enabled as i64,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_schedules_for_asset(&self, asset_id: Id) -> Result<Vec<Schedule>> {
+        self.query_schedules("WHERE asset_id = ?1", Some(&asset_id.to_string()))
+    }
+
+    /// Enabled schedules whose `next_run_at` is at or before `now`.
+    pub fn list_due_schedules(&self, now: DateTime<Utc>) -> Result<Vec<Schedule>> {
+        self.query_schedules("WHERE enabled = 1 AND next_run_at <= ?1", Some(&ts(&now)))
+    }
+
+    pub fn update_schedule_next_run(&self, id: Id, next: DateTime<Utc>) -> Result<()> {
+        self.lock()?.execute(
+            "UPDATE schedules SET next_run_at=?2 WHERE id=?1",
+            params![id.to_string(), ts(&next)],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_schedule_enabled(&self, id: Id, enabled: bool) -> Result<()> {
+        self.lock()?.execute(
+            "UPDATE schedules SET enabled=?2 WHERE id=?1",
+            params![id.to_string(), enabled as i64],
+        )?;
+        Ok(())
+    }
+
+    fn query_schedules(&self, where_clause: &str, arg: Option<&str>) -> Result<Vec<Schedule>> {
+        let conn = self.lock()?;
+        let sql = format!(
+            "SELECT id, asset_id, kind, interval_secs, next_run_at, enabled
+             FROM schedules {where_clause} ORDER BY next_run_at"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let mapper = |r: &rusqlite::Row<'_>| {
+            Ok(ScheduleRow {
+                id: r.get(0)?,
+                asset_id: r.get(1)?,
+                kind: r.get(2)?,
+                interval_secs: r.get(3)?,
+                next_run_at: r.get(4)?,
+                enabled: r.get(5)?,
+            })
+        };
+        let raws = match arg {
+            Some(a) => stmt
+                .query_map([a], mapper)?
+                .collect::<rusqlite::Result<Vec<_>>>()?,
+            None => stmt
+                .query_map([], mapper)?
+                .collect::<rusqlite::Result<Vec<_>>>()?,
+        };
+        raws.into_iter().map(hydrate_schedule).collect()
+    }
+
+    // ---- alerts ----
+
+    pub fn insert_alert(&self, a: &Alert) -> Result<()> {
+        self.lock()?.execute(
+            "INSERT INTO alerts (id, asset_id, scan_id, severity, summary, detail, created_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7)",
+            params![
+                a.id.to_string(),
+                a.asset_id.to_string(),
+                a.scan_id.to_string(),
+                a.severity.as_str(),
+                a.summary,
+                a.detail,
+                ts(&a.created_at),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_alerts(&self) -> Result<Vec<Alert>> {
+        self.query_alerts("", None)
+    }
+
+    pub fn list_alerts_for_asset(&self, asset_id: Id) -> Result<Vec<Alert>> {
+        self.query_alerts("WHERE asset_id = ?1", Some(&asset_id.to_string()))
+    }
+
+    fn query_alerts(&self, where_clause: &str, arg: Option<&str>) -> Result<Vec<Alert>> {
+        let conn = self.lock()?;
+        let sql = format!(
+            "SELECT id, asset_id, scan_id, severity, summary, detail, created_at
+             FROM alerts {where_clause} ORDER BY created_at DESC"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let mapper = |r: &rusqlite::Row<'_>| {
+            Ok(AlertRow {
+                id: r.get(0)?,
+                asset_id: r.get(1)?,
+                scan_id: r.get(2)?,
+                severity: r.get(3)?,
+                summary: r.get(4)?,
+                detail: r.get(5)?,
+                created_at: r.get(6)?,
+            })
+        };
+        let raws = match arg {
+            Some(a) => stmt
+                .query_map([a], mapper)?
+                .collect::<rusqlite::Result<Vec<_>>>()?,
+            None => stmt
+                .query_map([], mapper)?
+                .collect::<rusqlite::Result<Vec<_>>>()?,
+        };
+        raws.into_iter().map(hydrate_alert).collect()
+    }
 }
 
 // ---- raw row structs --------------------------------------------------------
@@ -447,4 +593,168 @@ fn hydrate_finding(raw: FindingRow) -> Result<Finding> {
             .ok_or_else(|| anyhow!("bad severity {}", raw.severity))?,
         observed_at: pts(&raw.observed_at)?,
     })
+}
+
+struct ScheduleRow {
+    id: String,
+    asset_id: String,
+    kind: String,
+    interval_secs: i64,
+    next_run_at: String,
+    enabled: i64,
+}
+
+fn hydrate_schedule(raw: ScheduleRow) -> Result<Schedule> {
+    Ok(Schedule {
+        id: pid(&raw.id)?,
+        asset_id: pid(&raw.asset_id)?,
+        kind: ScanKind::from_db(&raw.kind).ok_or_else(|| anyhow!("bad scan kind {}", raw.kind))?,
+        interval_secs: raw.interval_secs,
+        next_run_at: pts(&raw.next_run_at)?,
+        enabled: raw.enabled != 0,
+    })
+}
+
+struct AlertRow {
+    id: String,
+    asset_id: String,
+    scan_id: String,
+    severity: String,
+    summary: String,
+    detail: String,
+    created_at: String,
+}
+
+fn hydrate_alert(raw: AlertRow) -> Result<Alert> {
+    Ok(Alert {
+        id: pid(&raw.id)?,
+        asset_id: pid(&raw.asset_id)?,
+        scan_id: pid(&raw.scan_id)?,
+        severity: Severity::from_db(&raw.severity)
+            .ok_or_else(|| anyhow!("bad severity {}", raw.severity))?,
+        summary: raw.summary,
+        detail: raw.detail,
+        created_at: pts(&raw.created_at)?,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Duration;
+
+    fn mem() -> Store {
+        let s = Store::open(":memory:").unwrap();
+        s.migrate().unwrap();
+        s
+    }
+
+    fn seed_asset(s: &Store) -> Id {
+        let cid = Uuid::new_v4();
+        s.insert_client(&Client {
+            id: cid,
+            name: "C".into(),
+            contact_email: "c@e".into(),
+            created_at: Utc::now(),
+        })
+        .unwrap();
+        let aid = Uuid::new_v4();
+        s.insert_asset(&Asset {
+            id: aid,
+            client_id: cid,
+            kind: AssetKind::Host,
+            value: "203.0.113.1".into(),
+            auth_status: AuthStatus::Active,
+            authorized_until: None,
+            window_start: None,
+            window_end: None,
+            roe_reference: Some("RoE-1".into()),
+            created_at: Utc::now(),
+        })
+        .unwrap();
+        aid
+    }
+
+    #[test]
+    fn asset_roundtrips_through_sqlite() {
+        let s = mem();
+        let aid = seed_asset(&s);
+        let got = s.get_asset(aid).unwrap().unwrap();
+        assert_eq!(got.value, "203.0.113.1");
+        assert_eq!(got.auth_status, AuthStatus::Active);
+        assert_eq!(got.roe_reference.as_deref(), Some("RoE-1"));
+    }
+
+    #[test]
+    fn due_schedules_respect_time_and_enabled_flag() {
+        let s = mem();
+        let aid = seed_asset(&s);
+        let now = Utc::now();
+
+        let due = Schedule {
+            id: Uuid::new_v4(),
+            asset_id: aid,
+            kind: ScanKind::ExternalSurface,
+            interval_secs: 3600,
+            next_run_at: now - Duration::minutes(1),
+            enabled: true,
+        };
+        let future = Schedule {
+            id: Uuid::new_v4(),
+            asset_id: aid,
+            kind: ScanKind::ExternalSurface,
+            interval_secs: 3600,
+            next_run_at: now + Duration::hours(1),
+            enabled: true,
+        };
+        let disabled = Schedule {
+            id: Uuid::new_v4(),
+            asset_id: aid,
+            kind: ScanKind::ExternalSurface,
+            interval_secs: 3600,
+            next_run_at: now - Duration::minutes(1),
+            enabled: false,
+        };
+        s.insert_schedule(&due).unwrap();
+        s.insert_schedule(&future).unwrap();
+        s.insert_schedule(&disabled).unwrap();
+
+        let got = s.list_due_schedules(now).unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].id, due.id);
+
+        // After rescheduling, it is no longer due.
+        s.update_schedule_next_run(due.id, now + Duration::hours(1))
+            .unwrap();
+        assert!(s.list_due_schedules(now).unwrap().is_empty());
+    }
+
+    #[test]
+    fn alerts_persist_and_list_newest_first() {
+        let s = mem();
+        let aid = seed_asset(&s);
+        let scan_id = Uuid::new_v4();
+        s.insert_scan(&Scan {
+            id: scan_id,
+            asset_id: aid,
+            kind: ScanKind::ExternalSurface,
+            status: ScanStatus::Completed,
+            started_at: Utc::now(),
+            finished_at: Some(Utc::now()),
+            note: None,
+        })
+        .unwrap();
+        s.insert_alert(&Alert {
+            id: Uuid::new_v4(),
+            asset_id: aid,
+            scan_id,
+            severity: Severity::Medium,
+            summary: "change".into(),
+            detail: "new: tcp/3389".into(),
+            created_at: Utc::now(),
+        })
+        .unwrap();
+        assert_eq!(s.list_alerts().unwrap().len(), 1);
+        assert_eq!(s.list_alerts_for_asset(aid).unwrap().len(), 1);
+    }
 }
