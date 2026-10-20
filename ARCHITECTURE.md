@@ -110,8 +110,8 @@ API aggiunte: `POST /cve`, `GET /cve`, `POST /cve/import-nvd?product=<token>`,
 | M5 | **Collettori inventario**: classificatore **SNMP** sysDescr→vendor/versione ✅ (core puro+API `snmp-classify`); collector UDP live (`csnmp`), RouterOS API/The Dude, NETCONF, import PRTG | in corso |
 | M6 | **NMS**: stato rete + sonde interfacce (SNMP/NETCONF), banda/latenza/up-down, soglie → alert (sostituisce PRTG) | da fare |
 | **M7** | Consegna alert: flag `delivered` + `notify::deliver_pending` (webhook → endpoint Emily, at-least-once, retry) | ✅ fatto lato netdefense (manca il piccolo endpoint `POST /api/integrations/netdefense/alert` lato Emily che chiama `events.notify`) |
-| M8 | Scanner **igiene web** (nikto/wpscan) + **VoIP** (SIP enum, toll-fraud) periodici | da fare |
-| M9 | **Lab di ricerca**: apparati test isolati, fuzzing, workflow **coordinated disclosure** (CVE) | da fare |
+| M8 | **VoIP** (SIP OPTIONS probe + fingerprint PBX 3CX/Asterisk/Cirpack) ✅ core+API; invio UDP live + estate web (200 siti) nikto/wpscan + change-detection: da fare | in corso |
+| M9 | **Lab/disclosure**: macchina a stati **coordinated disclosure** + candidati vuln ✅ core+API; lab-gate su authz + harness fuzzing: da fare | in corso |
 | M10 | Agente interno (modello ibrido) + mTLS; report per cliente; RBAC/multi-tenant | da fare |
 
 ### Nota disclosure

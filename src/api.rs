@@ -41,6 +41,11 @@ pub fn router(store: Store) -> Router {
         .route("/assets/:id/facts", post(set_facts))
         .route("/assets/:id/snmp-classify", post(snmp_classify))
         .route("/fleet/catalog", get(fleet_catalog))
+        .route("/voip/options-template", get(voip_template))
+        .route("/assets/:id/voip-analyze", post(voip_analyze))
+        .route("/assets/:id/candidates", post(create_candidate))
+        .route("/candidates", get(list_candidates))
+        .route("/candidates/:id/advance", post(advance_candidate))
         .with_state(store)
 }
 
@@ -395,6 +400,116 @@ async fn set_facts(
     // New version info may match existing CVEs.
     let raised = crate::fleet::run_correlation(&store)?;
     Ok(Json(json!({ "facts": facts, "alerts_raised": raised })).into_response())
+}
+
+// ---- voip ----
+
+#[derive(Deserialize)]
+struct VoipTemplateQuery {
+    host: String,
+    port: Option<u16>,
+}
+
+async fn voip_template(Query(q): Query<VoipTemplateQuery>) -> ApiResult {
+    let branch = Uuid::new_v4().simple().to_string();
+    let msg = crate::voip::build_options_request(&q.host, q.port.unwrap_or(5060), &branch);
+    Ok(Json(json!({ "sip_options": msg })).into_response())
+}
+
+#[derive(Deserialize)]
+struct VoipAnalyzeBody {
+    /// A raw SIP response captured from the target (e.g. to an OPTIONS probe).
+    response: String,
+}
+
+async fn voip_analyze(
+    State(store): State<Store>,
+    Path(asset_id): Path<Uuid>,
+    Json(b): Json<VoipAnalyzeBody>,
+) -> ApiResult {
+    if store.get_asset(asset_id)?.is_none() {
+        return Ok(not_found("asset"));
+    }
+    match crate::voip::parse_sip_response(&b.response) {
+        Some(r) => {
+            let fp = crate::voip::fingerprint(r.server.as_deref(), r.user_agent.as_deref());
+            Ok(Json(json!({
+                "parsed": r,
+                "pbx": fp.map(|(p, note)| json!({ "product": p, "note": note })),
+            }))
+            .into_response())
+        }
+        None => Ok((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({ "error": "not a SIP response" })),
+        )
+            .into_response()),
+    }
+}
+
+// ---- vuln candidates / disclosure ----
+
+#[derive(Deserialize)]
+struct NewCandidate {
+    title: String,
+    detail: String,
+    severity: Severity,
+    cve_id: Option<String>,
+}
+
+async fn create_candidate(
+    State(store): State<Store>,
+    Path(asset_id): Path<Uuid>,
+    Json(b): Json<NewCandidate>,
+) -> ApiResult {
+    if store.get_asset(asset_id)?.is_none() {
+        return Ok(not_found("asset"));
+    }
+    let now = Utc::now();
+    let c = crate::disclosure::VulnCandidate {
+        id: Uuid::new_v4(),
+        asset_id,
+        title: b.title,
+        detail: b.detail,
+        severity: b.severity,
+        state: crate::disclosure::DisclosureState::Discovered,
+        cve_id: b.cve_id,
+        created_at: now,
+        updated_at: now,
+    };
+    store.insert_candidate(&c)?;
+    Ok((StatusCode::CREATED, Json(c)).into_response())
+}
+
+async fn list_candidates(State(store): State<Store>) -> ApiResult {
+    Ok(Json(store.list_candidates()?).into_response())
+}
+
+#[derive(Deserialize)]
+struct AdvanceBody {
+    to: crate::disclosure::DisclosureState,
+    cve_id: Option<String>,
+}
+
+async fn advance_candidate(
+    State(store): State<Store>,
+    Path(id): Path<Uuid>,
+    Json(b): Json<AdvanceBody>,
+) -> ApiResult {
+    let Some(c) = store.get_candidate(id)? else {
+        return Ok(not_found("candidate"));
+    };
+    match crate::disclosure::advance(c.state, b.to) {
+        Ok(next) => {
+            store.update_candidate_state(id, next, b.cve_id.as_deref())?;
+            Ok(Json(store.get_candidate(id)?).into_response())
+        }
+        Err(e) => Ok((
+            StatusCode::CONFLICT,
+            Json(json!({ "error": e.to_string() })),
+        )
+            .into_response()),
+    }
 }
 
 // ---- helpers ----

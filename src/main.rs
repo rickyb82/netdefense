@@ -8,6 +8,7 @@ mod alert;
 mod api;
 mod authz;
 mod cve;
+mod disclosure;
 mod domain;
 mod fleet;
 mod notify;
@@ -16,6 +17,7 @@ mod scan;
 mod scheduler;
 mod snmp;
 mod store;
+mod voip;
 
 use std::time::Duration;
 

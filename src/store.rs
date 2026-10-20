@@ -151,6 +151,17 @@ impl Store {
                 last_status   TEXT,
                 PRIMARY KEY (source, product)
             );
+            CREATE TABLE IF NOT EXISTS vuln_candidates (
+                id         TEXT PRIMARY KEY,
+                asset_id   TEXT NOT NULL REFERENCES assets(id),
+                title      TEXT NOT NULL,
+                detail     TEXT NOT NULL,
+                severity   TEXT NOT NULL,
+                state      TEXT NOT NULL,
+                cve_id     TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             CREATE INDEX IF NOT EXISTS idx_assets_client ON assets(client_id);
             CREATE INDEX IF NOT EXISTS idx_scans_asset ON scans(asset_id);
             CREATE INDEX IF NOT EXISTS idx_findings_scan ON findings(scan_id);
@@ -704,6 +715,104 @@ impl Store {
             params![cve_id, asset_id.to_string(), ts(&Utc::now())],
         )?;
         Ok(changed > 0)
+    }
+
+    // ---- vuln candidates (research lab / disclosure) ----
+
+    pub fn insert_candidate(&self, c: &crate::disclosure::VulnCandidate) -> Result<()> {
+        self.lock()?.execute(
+            "INSERT INTO vuln_candidates (id, asset_id, title, detail, severity, state, cve_id, created_at, updated_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+            params![
+                c.id.to_string(),
+                c.asset_id.to_string(),
+                c.title,
+                c.detail,
+                c.severity.as_str(),
+                c.state.as_str(),
+                c.cve_id,
+                ts(&c.created_at),
+                ts(&c.updated_at),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_candidate_state(
+        &self,
+        id: Id,
+        state: crate::disclosure::DisclosureState,
+        cve_id: Option<&str>,
+    ) -> Result<()> {
+        self.lock()?.execute(
+            "UPDATE vuln_candidates SET state=?2, cve_id=COALESCE(?3, cve_id), updated_at=?4 WHERE id=?1",
+            params![id.to_string(), state.as_str(), cve_id, ts(&Utc::now())],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_candidate(&self, id: Id) -> Result<Option<crate::disclosure::VulnCandidate>> {
+        Ok(self
+            .query_candidates("WHERE id = ?1", Some(&id.to_string()))?
+            .into_iter()
+            .next())
+    }
+
+    pub fn list_candidates(&self) -> Result<Vec<crate::disclosure::VulnCandidate>> {
+        self.query_candidates("", None)
+    }
+
+    fn query_candidates(
+        &self,
+        where_clause: &str,
+        arg: Option<&str>,
+    ) -> Result<Vec<crate::disclosure::VulnCandidate>> {
+        let conn = self.lock()?;
+        let sql = format!(
+            "SELECT id, asset_id, title, detail, severity, state, cve_id, created_at, updated_at
+             FROM vuln_candidates {where_clause} ORDER BY created_at DESC"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let mapper = |r: &rusqlite::Row<'_>| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, String>(4)?,
+                r.get::<_, String>(5)?,
+                r.get::<_, Option<String>>(6)?,
+                r.get::<_, String>(7)?,
+                r.get::<_, String>(8)?,
+            ))
+        };
+        let raws = match arg {
+            Some(a) => stmt
+                .query_map([a], mapper)?
+                .collect::<rusqlite::Result<Vec<_>>>()?,
+            None => stmt
+                .query_map([], mapper)?
+                .collect::<rusqlite::Result<Vec<_>>>()?,
+        };
+        raws.into_iter()
+            .map(
+                |(id, asset_id, title, detail, sev, state, cve_id, created, updated)| {
+                    Ok(crate::disclosure::VulnCandidate {
+                        id: pid(&id)?,
+                        asset_id: pid(&asset_id)?,
+                        title,
+                        detail,
+                        severity: Severity::from_db(&sev)
+                            .ok_or_else(|| anyhow!("bad severity {sev}"))?,
+                        state: crate::disclosure::DisclosureState::from_db(&state)
+                            .ok_or_else(|| anyhow!("bad disclosure state {state}"))?,
+                        cve_id,
+                        created_at: pts(&created)?,
+                        updated_at: pts(&updated)?,
+                    })
+                },
+            )
+            .collect()
     }
 }
 
