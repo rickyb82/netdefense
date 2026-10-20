@@ -14,6 +14,7 @@ mod notify;
 mod nvd;
 mod scan;
 mod scheduler;
+mod snmp;
 mod store;
 
 use std::time::Duration;

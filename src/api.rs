@@ -39,6 +39,7 @@ pub fn router(store: Store) -> Router {
         .route("/cve/import-nvd", post(import_nvd))
         .route("/cve/correlate", post(correlate_cve))
         .route("/assets/:id/facts", post(set_facts))
+        .route("/assets/:id/snmp-classify", post(snmp_classify))
         .route("/fleet/catalog", get(fleet_catalog))
         .with_state(store)
 }
@@ -322,6 +323,40 @@ async fn import_nvd(
         Json(json!({ "imported": n, "product": q.product, "alerts_raised": raised }))
             .into_response(),
     )
+}
+
+#[derive(Deserialize)]
+struct SnmpClassifyBody {
+    sysdescr: String,
+    sys_object_id: Option<String>,
+}
+
+/// Classify a device from its SNMP sysDescr/sysObjectID, store the resulting
+/// vendor/product/version as device facts, and correlate against known CVEs.
+async fn snmp_classify(
+    State(store): State<Store>,
+    Path(asset_id): Path<Uuid>,
+    Json(b): Json<SnmpClassifyBody>,
+) -> ApiResult {
+    if store.get_asset(asset_id)?.is_none() {
+        return Ok(not_found("asset"));
+    }
+    match crate::snmp::classify(&b.sysdescr, b.sys_object_id.as_deref()) {
+        Some(id) => {
+            let facts = crate::snmp::facts(asset_id, &id);
+            store.upsert_device_facts(&facts)?;
+            let raised = crate::fleet::run_correlation(&store)?;
+            Ok(
+                Json(json!({ "identity": id, "facts": facts, "alerts_raised": raised }))
+                    .into_response(),
+            )
+        }
+        None => Ok((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({ "error": "sysDescr not recognised", "sysdescr": b.sysdescr })),
+        )
+            .into_response()),
+    }
 }
 
 async fn fleet_catalog(State(_store): State<Store>) -> ApiResult {
