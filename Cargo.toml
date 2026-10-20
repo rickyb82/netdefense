@@ -1,3 +1,7 @@
+[workspace]
+members = ["kali-mcp"]
+resolver = "2"
+
 [package]
 name = "netdefense"
 version = "0.1.0"
