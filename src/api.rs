@@ -46,6 +46,8 @@ pub fn router(store: Store) -> Router {
         .route("/assets/:id/candidates", post(create_candidate))
         .route("/candidates", get(list_candidates))
         .route("/candidates/:id/advance", post(advance_candidate))
+        .route("/clients/:id/import-prtg", post(import_prtg))
+        .route("/nms/interface-eval", post(nms_eval))
         .with_state(store)
 }
 
@@ -510,6 +512,89 @@ async fn advance_candidate(
         )
             .into_response()),
     }
+}
+
+// ---- PRTG import ----
+
+#[derive(Deserialize)]
+struct PrtgImportBody {
+    /// Raw PRTG /api/table.json?content=devices response body.
+    table_json: String,
+}
+
+/// Import PRTG devices as assets for a client. Imported assets start Pending —
+/// they still require explicit authorization before any scan.
+async fn import_prtg(
+    State(store): State<Store>,
+    Path(client_id): Path<Uuid>,
+    Json(b): Json<PrtgImportBody>,
+) -> ApiResult {
+    if store.get_client(client_id)?.is_none() {
+        return Ok(not_found("client"));
+    }
+    let devices = crate::prtg::parse_table_devices(&b.table_json)?;
+    let mut imported = 0usize;
+    for d in &devices {
+        let asset = Asset {
+            id: Uuid::new_v4(),
+            client_id,
+            kind: if crate::prtg::looks_like_ip(&d.host) {
+                AssetKind::Host
+            } else {
+                AssetKind::Domain
+            },
+            value: d.host.clone(),
+            auth_status: AuthStatus::Pending,
+            authorized_until: None,
+            window_start: None,
+            window_end: None,
+            roe_reference: None,
+            created_at: Utc::now(),
+        };
+        store.insert_asset(&asset)?;
+        imported += 1;
+    }
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({ "imported": imported, "parsed": devices.len() })),
+    )
+        .into_response())
+}
+
+// ---- NMS interface evaluation ----
+
+#[derive(Deserialize)]
+struct NmsEvalBody {
+    prev_octets: u64,
+    cur_octets: u64,
+    delta_seconds: f64,
+    #[serde(default = "default_width")]
+    width_bits: u32,
+    speed_bps: f64,
+    oper_up: bool,
+    #[serde(default = "warn_default")]
+    warn_pct: f64,
+    #[serde(default = "crit_default")]
+    crit_pct: f64,
+}
+
+fn default_width() -> u32 {
+    64
+}
+fn warn_default() -> f64 {
+    70.0
+}
+fn crit_default() -> f64 {
+    90.0
+}
+
+/// Evaluate one interface sample pair into bandwidth / utilization / verdict.
+/// The SNMP poller posts pairs here (or calls the nms functions directly).
+async fn nms_eval(Json(b): Json<NmsEvalBody>) -> ApiResult {
+    let bps = crate::nms::bandwidth_bps(b.prev_octets, b.cur_octets, b.delta_seconds, b.width_bits);
+    let util = bps.and_then(|v| crate::nms::utilization_pct(v, b.speed_bps));
+    let verdict = crate::nms::evaluate(util, b.oper_up, b.warn_pct, b.crit_pct);
+    Ok(Json(json!({ "bps": bps, "utilization_pct": util, "verdict": verdict })).into_response())
 }
 
 // ---- helpers ----
