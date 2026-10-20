@@ -117,7 +117,8 @@ impl Store {
                 severity   TEXT NOT NULL,
                 summary    TEXT NOT NULL,
                 detail     TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                delivered  INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS cves (
                 id                 TEXT PRIMARY KEY,
@@ -142,6 +143,14 @@ impl Store {
                 created_at TEXT NOT NULL,
                 PRIMARY KEY (cve_id, asset_id)
             );
+            CREATE TABLE IF NOT EXISTS cve_sync_state (
+                source        TEXT NOT NULL,
+                product       TEXT NOT NULL,
+                last_modified TEXT,
+                last_run_at   TEXT NOT NULL,
+                last_status   TEXT,
+                PRIMARY KEY (source, product)
+            );
             CREATE INDEX IF NOT EXISTS idx_assets_client ON assets(client_id);
             CREATE INDEX IF NOT EXISTS idx_scans_asset ON scans(asset_id);
             CREATE INDEX IF NOT EXISTS idx_findings_scan ON findings(scan_id);
@@ -151,6 +160,11 @@ impl Store {
             CREATE INDEX IF NOT EXISTS idx_facts_product ON device_facts(product);
             "#,
         )?;
+        // Idempotent column add for databases created before alert delivery existed.
+        let _ = conn.execute(
+            "ALTER TABLE alerts ADD COLUMN delivered INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
         Ok(())
     }
 
@@ -542,6 +556,19 @@ impl Store {
         raws.into_iter().map(hydrate_alert).collect()
     }
 
+    /// Alerts not yet delivered to a notification channel.
+    pub fn list_undelivered_alerts(&self) -> Result<Vec<Alert>> {
+        self.query_alerts("WHERE delivered = 0", None)
+    }
+
+    pub fn mark_alert_delivered(&self, id: Id) -> Result<()> {
+        self.lock()?.execute(
+            "UPDATE alerts SET delivered = 1 WHERE id = ?1",
+            params![id.to_string()],
+        )?;
+        Ok(())
+    }
+
     // ---- cves ----
 
     pub fn insert_cve(&self, c: &crate::cve::Cve) -> Result<()> {
@@ -634,6 +661,38 @@ impl Store {
                 })
             })
             .collect()
+    }
+
+    /// High-water `last_modified` cursor for an incremental feed sync.
+    pub fn get_sync_cursor(&self, source: &str, product: &str) -> Result<Option<DateTime<Utc>>> {
+        let conn = self.lock()?;
+        let v: Option<Option<String>> = conn
+            .query_row(
+                "SELECT last_modified FROM cve_sync_state WHERE source=?1 AND product=?2",
+                params![source, product],
+                |r| r.get(0),
+            )
+            .ok();
+        match v.flatten() {
+            Some(s) => Ok(Some(pts(&s)?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn set_sync_cursor(
+        &self,
+        source: &str,
+        product: &str,
+        last_modified: Option<DateTime<Utc>>,
+        last_run_at: DateTime<Utc>,
+        status: &str,
+    ) -> Result<()> {
+        self.lock()?.execute(
+            "INSERT OR REPLACE INTO cve_sync_state (source, product, last_modified, last_run_at, last_status)
+             VALUES (?1,?2,?3,?4,?5)",
+            params![source, product, last_modified.map(|t| ts(&t)), ts(&last_run_at), status],
+        )?;
+        Ok(())
     }
 
     /// Record a (cve, asset) match; returns true if it is newly recorded (so

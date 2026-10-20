@@ -10,6 +10,8 @@ mod authz;
 mod cve;
 mod domain;
 mod fleet;
+mod notify;
+mod nvd;
 mod scan;
 mod scheduler;
 mod store;
@@ -30,6 +32,16 @@ async fn main() -> anyhow::Result<()> {
     store.migrate()?;
 
     scheduler::spawn(store.clone(), Duration::from_secs(tick_secs));
+    notify::spawn(store.clone(), notify::NotifyConfig::from_env());
+
+    let nvd_cfg = nvd::NvdConfig::from_env();
+    if nvd_cfg.enabled {
+        eprintln!(
+            "netdefense nvd: poller enabled (every {}s)",
+            nvd_cfg.poll_secs
+        );
+        nvd::spawn(store.clone(), nvd_cfg);
+    }
 
     let app = api::router(store);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
