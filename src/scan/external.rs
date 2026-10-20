@@ -57,17 +57,41 @@ fn parse_greppable(stdout: &str) -> Vec<FindingDraft> {
             let proto = fields[2];
             let service = fields.get(4).copied().unwrap_or("").trim();
             let key = format!("{proto}/{port}");
-            let title = if service.is_empty() {
-                format!("Open port {port}/{proto}")
-            } else {
-                format!("Open port {port}/{proto} ({service})")
+            // Flag management / VoIP ports by severity; everything else is info.
+            let exposure = port
+                .parse::<u16>()
+                .ok()
+                .and_then(|p| crate::fleet::classify(p, proto));
+            let (severity, title, detail) = match &exposure {
+                Some(e) => (
+                    e.severity,
+                    format!("{} esposto · {port}/{proto}", e.label),
+                    format!(
+                        "{} ({})",
+                        e.note,
+                        if service.is_empty() {
+                            "servizio n/d"
+                        } else {
+                            service
+                        }
+                    ),
+                ),
+                None => (
+                    Severity::Info,
+                    if service.is_empty() {
+                        format!("Porta aperta {port}/{proto}")
+                    } else {
+                        format!("Porta aperta {port}/{proto} ({service})")
+                    },
+                    format!("nmap: {port}/{proto} aperta, servizio `{service}`"),
+                ),
             };
             findings.push(FindingDraft {
                 kind: "open_port".to_string(),
                 key,
                 title,
-                detail: format!("nmap reports {port}/{proto} open, service `{service}`"),
-                severity: Severity::Info,
+                detail,
+                severity,
             });
         }
     }
@@ -86,7 +110,7 @@ mod tests {
         let f = parse_greppable(sample);
         let keys: Vec<_> = f.iter().map(|x| x.key.as_str()).collect();
         assert_eq!(keys, ["tcp/22", "tcp/80", "tcp/443"]);
-        assert!(f[0].title.contains("ssh"));
+        assert!(f[0].title.contains("SSH") && f[0].detail.contains("ssh"));
     }
 
     #[test]

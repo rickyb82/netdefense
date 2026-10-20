@@ -3,7 +3,7 @@
 //! refused scan comes back as HTTP 403 with the reason.
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -35,6 +35,11 @@ pub fn router(store: Store) -> Router {
         .route("/schedules/:id/enabled", post(set_schedule_enabled))
         .route("/scans/:id", get(get_scan))
         .route("/alerts", get(list_alerts))
+        .route("/cve", post(ingest_cve).get(list_cve))
+        .route("/cve/import-nvd", post(import_nvd))
+        .route("/cve/correlate", post(correlate_cve))
+        .route("/assets/:id/facts", post(set_facts))
+        .route("/fleet/catalog", get(fleet_catalog))
         .with_state(store)
 }
 
@@ -270,6 +275,91 @@ async fn list_alerts(State(store): State<Store>) -> ApiResult {
 
 async fn asset_alerts(State(store): State<Store>, Path(asset_id): Path<Uuid>) -> ApiResult {
     Ok(Json(store.list_alerts_for_asset(asset_id)?).into_response())
+}
+
+// ---- cve / fleet ----
+
+async fn ingest_cve(State(store): State<Store>, Json(cve): Json<crate::cve::Cve>) -> ApiResult {
+    store.insert_cve(&cve)?;
+    // Correlate immediately so a freshly published CVE alerts the moment it lands.
+    let raised = crate::fleet::run_correlation(&store)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({ "stored": cve.id, "alerts_raised": raised })),
+    )
+        .into_response())
+}
+
+async fn list_cve(State(store): State<Store>) -> ApiResult {
+    Ok(Json(store.list_cves()?).into_response())
+}
+
+async fn correlate_cve(State(store): State<Store>) -> ApiResult {
+    let raised = crate::fleet::run_correlation(&store)?;
+    Ok(Json(json!({ "alerts_raised": raised })).into_response())
+}
+
+#[derive(Deserialize)]
+struct NvdQuery {
+    /// Product CPE token to match in the feed, e.g. `routeros`, `3cx`, `junos`.
+    product: String,
+}
+
+/// Ingest a raw NVD 2.0 JSON feed (body) and store every CVE matching the
+/// `product` token, then correlate. Lets you pipe NVD / vendor feeds in.
+async fn import_nvd(
+    State(store): State<Store>,
+    Query(q): Query<NvdQuery>,
+    body: String,
+) -> ApiResult {
+    let cves = crate::cve::parse_nvd(&body, &q.product);
+    let n = cves.len();
+    for c in &cves {
+        store.insert_cve(c)?;
+    }
+    let raised = crate::fleet::run_correlation(&store)?;
+    Ok(
+        Json(json!({ "imported": n, "product": q.product, "alerts_raised": raised }))
+            .into_response(),
+    )
+}
+
+async fn fleet_catalog(State(_store): State<Store>) -> ApiResult {
+    let items: Vec<_> = crate::fleet::catalog()
+        .iter()
+        .map(|p| json!({ "key": p.key, "vendor": p.vendor, "label": p.label, "cpe_token": p.cpe_token }))
+        .collect();
+    Ok(Json(items).into_response())
+}
+
+#[derive(Deserialize)]
+struct FactsBody {
+    vendor: String,
+    product: String,
+    version: Option<String>,
+    #[serde(default)]
+    mgmt: Vec<String>,
+}
+
+async fn set_facts(
+    State(store): State<Store>,
+    Path(asset_id): Path<Uuid>,
+    Json(b): Json<FactsBody>,
+) -> ApiResult {
+    if store.get_asset(asset_id)?.is_none() {
+        return Ok(not_found("asset"));
+    }
+    let facts = crate::fleet::DeviceFacts {
+        asset_id,
+        vendor: b.vendor,
+        product: b.product,
+        version: b.version,
+        mgmt: b.mgmt,
+    };
+    store.upsert_device_facts(&facts)?;
+    // New version info may match existing CVEs.
+    let raised = crate::fleet::run_correlation(&store)?;
+    Ok(Json(json!({ "facts": facts, "alerts_raised": raised })).into_response())
 }
 
 // ---- helpers ----

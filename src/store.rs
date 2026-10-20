@@ -113,17 +113,42 @@ impl Store {
             CREATE TABLE IF NOT EXISTS alerts (
                 id         TEXT PRIMARY KEY,
                 asset_id   TEXT NOT NULL REFERENCES assets(id),
-                scan_id    TEXT NOT NULL REFERENCES scans(id),
+                scan_id    TEXT REFERENCES scans(id),
                 severity   TEXT NOT NULL,
                 summary    TEXT NOT NULL,
                 detail     TEXT NOT NULL,
                 created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS cves (
+                id                 TEXT PRIMARY KEY,
+                published          TEXT NOT NULL,
+                severity           TEXT NOT NULL,
+                summary            TEXT NOT NULL,
+                product            TEXT NOT NULL,
+                version_start_incl TEXT,
+                version_end_excl   TEXT
+            );
+            CREATE TABLE IF NOT EXISTS device_facts (
+                asset_id   TEXT PRIMARY KEY REFERENCES assets(id),
+                vendor     TEXT NOT NULL,
+                product    TEXT NOT NULL,
+                version    TEXT,
+                mgmt       TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS cve_matches (
+                cve_id     TEXT NOT NULL,
+                asset_id   TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (cve_id, asset_id)
             );
             CREATE INDEX IF NOT EXISTS idx_assets_client ON assets(client_id);
             CREATE INDEX IF NOT EXISTS idx_scans_asset ON scans(asset_id);
             CREATE INDEX IF NOT EXISTS idx_findings_scan ON findings(scan_id);
             CREATE INDEX IF NOT EXISTS idx_schedules_due ON schedules(next_run_at);
             CREATE INDEX IF NOT EXISTS idx_alerts_asset ON alerts(asset_id);
+            CREATE INDEX IF NOT EXISTS idx_cves_product ON cves(product);
+            CREATE INDEX IF NOT EXISTS idx_facts_product ON device_facts(product);
             "#,
         )?;
         Ok(())
@@ -470,7 +495,7 @@ impl Store {
             params![
                 a.id.to_string(),
                 a.asset_id.to_string(),
-                a.scan_id.to_string(),
+                a.scan_id.map(|x| x.to_string()),
                 a.severity.as_str(),
                 a.summary,
                 a.detail,
@@ -515,6 +540,111 @@ impl Store {
                 .collect::<rusqlite::Result<Vec<_>>>()?,
         };
         raws.into_iter().map(hydrate_alert).collect()
+    }
+
+    // ---- cves ----
+
+    pub fn insert_cve(&self, c: &crate::cve::Cve) -> Result<()> {
+        self.lock()?.execute(
+            "INSERT OR REPLACE INTO cves (id, published, severity, summary, product, version_start_incl, version_end_excl)
+             VALUES (?1,?2,?3,?4,?5,?6,?7)",
+            params![
+                c.id,
+                c.published,
+                c.severity.as_str(),
+                c.summary,
+                c.product,
+                c.version_start_incl,
+                c.version_end_excl,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_cves(&self) -> Result<Vec<crate::cve::Cve>> {
+        let conn = self.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, published, severity, summary, product, version_start_incl, version_end_excl
+             FROM cves ORDER BY published DESC",
+        )?;
+        let raws = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, Option<String>>(5)?,
+                    r.get::<_, Option<String>>(6)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        raws.into_iter()
+            .map(|(id, published, sev, summary, product, start, end)| {
+                Ok(crate::cve::Cve {
+                    id,
+                    published,
+                    severity: Severity::from_db(&sev)
+                        .ok_or_else(|| anyhow!("bad severity {sev}"))?,
+                    summary,
+                    product,
+                    version_start_incl: start,
+                    version_end_excl: end,
+                })
+            })
+            .collect()
+    }
+
+    // ---- device facts ----
+
+    pub fn upsert_device_facts(&self, f: &crate::fleet::DeviceFacts) -> Result<()> {
+        let mgmt = serde_json::to_string(&f.mgmt)?;
+        self.lock()?.execute(
+            "INSERT OR REPLACE INTO device_facts (asset_id, vendor, product, version, mgmt, updated_at)
+             VALUES (?1,?2,?3,?4,?5,?6)",
+            params![f.asset_id.to_string(), f.vendor, f.product, f.version, mgmt, ts(&Utc::now())],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_device_facts(&self) -> Result<Vec<crate::fleet::DeviceFacts>> {
+        let conn = self.lock()?;
+        let mut stmt =
+            conn.prepare("SELECT asset_id, vendor, product, version, mgmt FROM device_facts")?;
+        let raws = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, Option<String>>(3)?,
+                    r.get::<_, String>(4)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        raws.into_iter()
+            .map(|(asset_id, vendor, product, version, mgmt)| {
+                Ok(crate::fleet::DeviceFacts {
+                    asset_id: pid(&asset_id)?,
+                    vendor,
+                    product,
+                    version,
+                    mgmt: serde_json::from_str(&mgmt).unwrap_or_default(),
+                })
+            })
+            .collect()
+    }
+
+    /// Record a (cve, asset) match; returns true if it is newly recorded (so
+    /// the caller raises exactly one alert per pair).
+    pub fn record_cve_match(&self, cve_id: &str, asset_id: Id) -> Result<bool> {
+        let conn = self.lock()?;
+        let changed = conn.execute(
+            "INSERT OR IGNORE INTO cve_matches (cve_id, asset_id, created_at) VALUES (?1,?2,?3)",
+            params![cve_id, asset_id.to_string(), ts(&Utc::now())],
+        )?;
+        Ok(changed > 0)
     }
 }
 
@@ -618,7 +748,7 @@ fn hydrate_schedule(raw: ScheduleRow) -> Result<Schedule> {
 struct AlertRow {
     id: String,
     asset_id: String,
-    scan_id: String,
+    scan_id: Option<String>,
     severity: String,
     summary: String,
     detail: String,
@@ -629,7 +759,7 @@ fn hydrate_alert(raw: AlertRow) -> Result<Alert> {
     Ok(Alert {
         id: pid(&raw.id)?,
         asset_id: pid(&raw.asset_id)?,
-        scan_id: pid(&raw.scan_id)?,
+        scan_id: raw.scan_id.map(|s| pid(&s)).transpose()?,
         severity: Severity::from_db(&raw.severity)
             .ok_or_else(|| anyhow!("bad severity {}", raw.severity))?,
         summary: raw.summary,
@@ -747,7 +877,7 @@ mod tests {
         s.insert_alert(&Alert {
             id: Uuid::new_v4(),
             asset_id: aid,
-            scan_id,
+            scan_id: Some(scan_id),
             severity: Severity::Medium,
             summary: "change".into(),
             detail: "new: tcp/3389".into(),
@@ -755,6 +885,41 @@ mod tests {
         })
         .unwrap();
         assert_eq!(s.list_alerts().unwrap().len(), 1);
+        assert_eq!(s.list_alerts_for_asset(aid).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn cve_facts_and_match_dedup() {
+        use crate::cve::Cve;
+        use crate::fleet::{run_correlation, DeviceFacts};
+        let s = mem();
+        let aid = seed_asset(&s);
+
+        s.insert_cve(&Cve {
+            id: "CVE-2023-41570".into(),
+            published: "2023-10-01".into(),
+            severity: Severity::High,
+            summary: "RouterOS issue".into(),
+            product: "routeros".into(),
+            version_start_incl: None,
+            version_end_excl: Some("6.49.8".into()),
+        })
+        .unwrap();
+        s.upsert_device_facts(&DeviceFacts {
+            asset_id: aid,
+            vendor: "MikroTik".into(),
+            product: "routeros".into(),
+            version: Some("6.49.7".into()),
+            mgmt: vec!["winbox/8291".into()],
+        })
+        .unwrap();
+
+        assert_eq!(s.list_cves().unwrap().len(), 1);
+        assert_eq!(s.list_device_facts().unwrap().len(), 1);
+
+        // First correlation raises one alert; a second run is a no-op (dedup).
+        assert_eq!(run_correlation(&s).unwrap(), 1);
+        assert_eq!(run_correlation(&s).unwrap(), 0);
         assert_eq!(s.list_alerts_for_asset(aid).unwrap().len(), 1);
     }
 }

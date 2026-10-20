@@ -72,20 +72,52 @@ parsing fallibile (UUID/date/enum) sta fuori dalla closure di rusqlite.
   telemetria al centrale tramite la stessa API/modello dati. L'agente erediterà
   lo stesso vincolo di scope autorizzato.
 
+## Flotta multi-vendor e CVE (`src/fleet.rs`, `src/cve.rs`)
+
+Pensato per un parco **multi-vendor di ~20.000 dispositivi**: MikroTik (anche
+CHR), Keenetic, Huawei, Juniper, AVM, antenne Cambium (ePMP/Medusa), Ubiquiti,
+e il VoIP (3CX, softswitch Cirpack).
+
+- **Catalogo prodotti** (`fleet::catalog`): per ogni vendor il token CPE usato
+  per matchare le CVE. Esteso man mano che cresce il parco.
+- **Device facts** (`device_facts`): vendor, prodotto, **versione** e servizi di
+  management/VoIP esposti per ciascun asset. La versione è ciò che serve alla
+  correlazione CVE; si popola via `POST /assets/:id/facts` (in prospettiva da
+  RouterOS API/The Dude, SNMP, API vendor, import PRTG).
+- **Motore CVE** (`cve.rs`): parsing feed **NVD 2.0**, confronto versioni
+  RouterOS-style, `Cve::affects(versione)`. Tutto puro e testato.
+- **Correlazione** (`fleet::run_correlation`): per ogni CVE × device con
+  prodotto e versione colpiti → **un alert** (dedup via `cve_matches`). Quando
+  esce una CVE si sa subito **quali** apparati sono colpiti; l'alert esce dalle
+  notifiche di Emily.
+- **Classificatore esposizione** (`fleet::classify`): porte management/VoIP
+  (Winbox 8291, RouterOS API 8728/9, Telnet, RDP, SNMP, TR-069, **SIP 5060/5061**,
+  **Asterisk AMI 5038**, **3CX 5000/5001/5090**) con severità; usato dallo scan
+  superficie per alzare la gravità dei finding.
+
+API aggiunte: `POST /cve`, `GET /cve`, `POST /cve/import-nvd?product=<token>`,
+`POST /cve/correlate`, `POST /assets/:id/facts`, `GET /fleet/catalog`.
+
 ## Roadmap
 
 | Milestone | Contenuto | Stato |
 |---|---|---|
 | **M1** | Gate autorizzazione, modello dati, store SQLite, API, scan superficie esterna + diff | ✅ fatto |
 | **M2** | Scheduler periodico per asset (`schedules`) + API | ✅ fatto |
-| **M3** | Alerting su diff `is_noteworthy`: alert persistiti (`alerts`) + log + API | ✅ fatto (consegna webhook/email: prossimo) |
-| M3b | Consegna alert: webhook/email/Slack (seam in `src/alert.rs`) | da fare |
-| M4 | Scanner **Vuln/CVE** (fingerprint versioni → feed CVE) | stub gated |
-| M5 | Scanner **Disponibilità/DoS** (uptime, latenza, anomalie) | stub gated |
-| M6 | Scanner **igiene web/WordPress** (nikto/wpscan periodici) | stub gated |
-| M7 | Agente interno (modello ibrido) + mTLS | da fare |
-| M8 | Report periodici per cliente + dashboard | da fare |
-| M9 | Autenticazione/RBAC sull'API, multi-tenant hardening | da fare |
+| **M3** | Alerting su diff: alert persistiti + log + API | ✅ fatto |
+| **M4** | Flotta multi-vendor + motore/correlazione **CVE** + classificatore esposizione VoIP/mgmt | ✅ fatto (logica pura, testata) |
+| M4b | Poller **NVD** schedulato (reqwest) + feed advisory vendor | da fare |
+| M5 | **Collettori inventario**: RouterOS API/The Dude, **SNMP** universale, NETCONF, API vendor, **import PRTG** | da fare |
+| M6 | **NMS**: stato rete + sonde interfacce (SNMP/NETCONF), banda/latenza/up-down, soglie → alert (sostituisce PRTG) | da fare |
+| M7 | Consegna alert: **notifiche Emily** + webhook/email/Slack (seam in `alert.rs`) | da fare |
+| M8 | Scanner **igiene web** (nikto/wpscan) + **VoIP** (SIP enum, toll-fraud) periodici | da fare |
+| M9 | **Lab di ricerca**: apparati test isolati, fuzzing, workflow **coordinated disclosure** (CVE) | da fare |
+| M10 | Agente interno (modello ibrido) + mTLS; report per cliente; RBAC/multi-tenant | da fare |
+
+### Nota disclosure
+Per le vulnerabilità nuove trovate nel lab: disclosure **coordinata** (vendor →
+CVE riservata → patch → pubblicazione). Pubblicare un 0-day prima della patch
+esporrebbe per primo il parco di ~20.000 dispositivi.
 
 ## Scheduler (`src/scheduler.rs`) e Alerting (`src/alert.rs`)
 

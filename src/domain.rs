@@ -174,7 +174,8 @@ pub struct Schedule {
 pub struct Alert {
     pub id: Id,
     pub asset_id: Id,
-    pub scan_id: Id,
+    /// The scan that raised it, or `None` for alerts from CVE correlation.
+    pub scan_id: Option<Id>,
     pub severity: Severity,
     pub summary: String,
     pub detail: String,

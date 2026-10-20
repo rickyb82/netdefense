@@ -7,7 +7,9 @@
 mod alert;
 mod api;
 mod authz;
+mod cve;
 mod domain;
+mod fleet;
 mod scan;
 mod scheduler;
 mod store;

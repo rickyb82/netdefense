@@ -34,7 +34,7 @@ pub fn from_diff(asset_id: Id, scan_id: Id, kind: ScanKind, summary: &DiffSummar
     Alert {
         id: Uuid::new_v4(),
         asset_id,
-        scan_id,
+        scan_id: Some(scan_id),
         severity,
         summary: summary_line,
         detail,
@@ -44,11 +44,15 @@ pub fn from_diff(asset_id: Id, scan_id: Id, kind: ScanKind, summary: &DiffSummar
 
 /// Log sink. Replaceable/extendable with webhook/email delivery.
 pub fn log(alert: &Alert) {
+    let scan = alert
+        .scan_id
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "cve".into());
     eprintln!(
         "netdefense ALERT [{}] asset={} scan={} :: {} — {}",
         alert.severity.as_str(),
         alert.asset_id,
-        alert.scan_id,
+        scan,
         alert.summary,
         alert.detail
     );
