@@ -49,6 +49,14 @@ pub fn router(store: Store) -> Router {
         .route("/clients/:id/import-prtg", post(import_prtg))
         .route("/nms/interface-eval", post(nms_eval))
         .route("/assets/:id/web-baseline", post(web_baseline))
+        .route("/rpki/check", post(rpki_check))
+        .route(
+            "/mitigations",
+            post(propose_mitigation).get(list_mitigations),
+        )
+        .route("/mitigations/:id/approve", post(approve_mitigation))
+        .route("/mitigations/:id/reject", post(reject_mitigation))
+        .route("/mitigations/:id/announce", post(announce_mitigation))
         .with_state(store)
 }
 
@@ -668,6 +676,135 @@ async fn web_baseline(
         "alerts_raised": alerts,
     }))
     .into_response())
+}
+
+// ---- RPKI check ----
+
+#[derive(Deserialize)]
+struct VrpIn {
+    prefix: String,
+    max_len: u8,
+    asn: u32,
+}
+
+#[derive(Deserialize)]
+struct RpkiCheckBody {
+    route: String,
+    origin_asn: u32,
+    #[serde(default)]
+    vrps: Vec<VrpIn>,
+}
+
+async fn rpki_check(Json(b): Json<RpkiCheckBody>) -> ApiResult {
+    let Some((rp, rl)) = crate::flowbgp::parse_v4_cidr(&b.route) else {
+        return Ok((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({ "error": "route non è un CIDR IPv4 valido" })),
+        )
+            .into_response());
+    };
+    let mut vrps = Vec::new();
+    for v in &b.vrps {
+        if let Some((prefix, len)) = crate::flowbgp::parse_v4_cidr(&v.prefix) {
+            vrps.push(crate::flowbgp::Vrp {
+                prefix,
+                len,
+                max_len: v.max_len,
+                asn: v.asn,
+            });
+        }
+    }
+    let state = crate::flowbgp::rpki_validity(rp, rl, b.origin_asn, &vrps);
+    Ok(
+        Json(json!({ "route": b.route, "origin_asn": b.origin_asn, "rpki": state }))
+            .into_response(),
+    )
+}
+
+// ---- mitigation proposals (approval-gated) ----
+
+#[derive(Deserialize)]
+struct NewMitigation {
+    title: String,
+    dst_cidr: String,
+    action: crate::flowbgp::FsAction,
+    #[serde(default)]
+    allow_broad: bool,
+}
+
+async fn propose_mitigation(State(store): State<Store>, Json(b): Json<NewMitigation>) -> ApiResult {
+    if let Err(e) = crate::flowbgp::validate_flowspec(&b.dst_cidr, &b.action, b.allow_broad) {
+        return Ok((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({ "error": e })),
+        )
+            .into_response());
+    }
+    let now = Utc::now();
+    let p = crate::flowbgp::MitigationProposal {
+        id: Uuid::new_v4(),
+        title: b.title,
+        dst_cidr: b.dst_cidr,
+        action: b.action,
+        state: crate::flowbgp::MitigationState::Proposed,
+        approver: None,
+        created_at: now,
+        updated_at: now,
+    };
+    store.insert_mitigation(&p)?;
+    Ok((StatusCode::CREATED, Json(p)).into_response())
+}
+
+async fn list_mitigations(State(store): State<Store>) -> ApiResult {
+    Ok(Json(store.list_mitigations()?).into_response())
+}
+
+#[derive(Deserialize)]
+struct ApproveBody {
+    approver: String,
+}
+
+async fn transition_mitigation(
+    store: &Store,
+    id: Uuid,
+    to: crate::flowbgp::MitigationState,
+    approver: Option<&str>,
+) -> ApiResult {
+    let Some(m) = store.get_mitigation(id)? else {
+        return Ok(not_found("mitigation"));
+    };
+    match crate::flowbgp::mitigation_advance(m.state, to) {
+        Ok(next) => {
+            store.update_mitigation_state(id, next, approver)?;
+            Ok(Json(store.get_mitigation(id)?).into_response())
+        }
+        Err(e) => Ok((StatusCode::CONFLICT, Json(json!({ "error": e }))).into_response()),
+    }
+}
+
+async fn approve_mitigation(
+    State(store): State<Store>,
+    Path(id): Path<Uuid>,
+    Json(b): Json<ApproveBody>,
+) -> ApiResult {
+    transition_mitigation(
+        &store,
+        id,
+        crate::flowbgp::MitigationState::Approved,
+        Some(&b.approver),
+    )
+    .await
+}
+
+async fn reject_mitigation(State(store): State<Store>, Path(id): Path<Uuid>) -> ApiResult {
+    transition_mitigation(&store, id, crate::flowbgp::MitigationState::Rejected, None).await
+}
+
+/// Advance an approved proposal to Announced. The actual GoBGP FlowSpec/RTBH
+/// announcement is the external seam; this records intent only.
+async fn announce_mitigation(State(store): State<Store>, Path(id): Path<Uuid>) -> ApiResult {
+    eprintln!("netdefense flowbgp: announce requested for mitigation {id} (GoBGP seam)");
+    transition_mitigation(&store, id, crate::flowbgp::MitigationState::Announced, None).await
 }
 
 // ---- helpers ----

@@ -11,6 +11,7 @@ mod cve;
 mod disclosure;
 mod domain;
 mod fleet;
+mod flowbgp;
 mod nms;
 mod notify;
 mod nvd;

@@ -112,7 +112,8 @@ API aggiunte: `POST /cve`, `GET /cve`, `POST /cve/import-nvd?product=<token>`,
 | **M7** | Consegna alert: flag `delivered` + `notify::deliver_pending` (webhook → endpoint Emily, at-least-once, retry) | ✅ fatto lato netdefense (manca il piccolo endpoint `POST /api/integrations/netdefense/alert` lato Emily che chiama `events.notify`) |
 | M8 | **VoIP** (SIP OPTIONS + fingerprint PBX) ✅ core+API; **estate web 200 siti** (scadenza TLS, voto header, change/defacement) ✅ core+API; invio UDP SIP live + fetch HTTPS/TLS-peek live + nikto/wpscan: da fare | in corso |
 | M9 | **Lab/disclosure**: macchina a stati **coordinated disclosure** + candidati vuln ✅ core+API; lab-gate su authz + harness fuzzing: da fare | in corso |
-| M10 | Agente interno (modello ibrido) + mTLS; report per cliente; RBAC/multi-tenant | da fare |
+| M10 | **NetFlow × BGP**: RPKI route-origin validation + validazione FlowSpec (cap anti-blackhole) + macchina stati mitigazione **approval-gated** (annuncio solo dopo approvazione) ✅ core+API; integrazione Akvorado/ClickHouse (flussi) + GoBGP (annuncio) + NTA/ML: da fare | in corso |
+| M11 | Agente interno (modello ibrido) + mTLS; report per cliente; RBAC/multi-tenant | da fare |
 
 ### Nota disclosure
 Per le vulnerabilità nuove trovate nel lab: disclosure **coordinata** (vendor →

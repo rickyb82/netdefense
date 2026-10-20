@@ -151,6 +151,16 @@ impl Store {
                 last_status   TEXT,
                 PRIMARY KEY (source, product)
             );
+            CREATE TABLE IF NOT EXISTS mitigation_proposals (
+                id         TEXT PRIMARY KEY,
+                title      TEXT NOT NULL,
+                dst_cidr   TEXT NOT NULL,
+                action     TEXT NOT NULL,
+                state      TEXT NOT NULL,
+                approver   TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS web_baselines (
                 asset_id         TEXT PRIMARY KEY REFERENCES assets(id),
                 content_hash     TEXT NOT NULL,
@@ -722,6 +732,101 @@ impl Store {
             params![cve_id, asset_id.to_string(), ts(&Utc::now())],
         )?;
         Ok(changed > 0)
+    }
+
+    // ---- mitigation proposals (NetFlow x BGP, approval-gated) ----
+
+    pub fn insert_mitigation(&self, p: &crate::flowbgp::MitigationProposal) -> Result<()> {
+        let action = serde_json::to_string(&p.action)?;
+        self.lock()?.execute(
+            "INSERT INTO mitigation_proposals (id, title, dst_cidr, action, state, approver, created_at, updated_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+            params![
+                p.id.to_string(),
+                p.title,
+                p.dst_cidr,
+                action,
+                p.state.as_str(),
+                p.approver,
+                ts(&p.created_at),
+                ts(&p.updated_at),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_mitigation_state(
+        &self,
+        id: Id,
+        state: crate::flowbgp::MitigationState,
+        approver: Option<&str>,
+    ) -> Result<()> {
+        self.lock()?.execute(
+            "UPDATE mitigation_proposals SET state=?2, approver=COALESCE(?3, approver), updated_at=?4 WHERE id=?1",
+            params![id.to_string(), state.as_str(), approver, ts(&Utc::now())],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_mitigation(&self, id: Id) -> Result<Option<crate::flowbgp::MitigationProposal>> {
+        Ok(self
+            .query_mitigations("WHERE id = ?1", Some(&id.to_string()))?
+            .into_iter()
+            .next())
+    }
+
+    pub fn list_mitigations(&self) -> Result<Vec<crate::flowbgp::MitigationProposal>> {
+        self.query_mitigations("", None)
+    }
+
+    fn query_mitigations(
+        &self,
+        where_clause: &str,
+        arg: Option<&str>,
+    ) -> Result<Vec<crate::flowbgp::MitigationProposal>> {
+        let conn = self.lock()?;
+        let sql = format!(
+            "SELECT id, title, dst_cidr, action, state, approver, created_at, updated_at
+             FROM mitigation_proposals {where_clause} ORDER BY created_at DESC"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let mapper = |r: &rusqlite::Row<'_>| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, String>(4)?,
+                r.get::<_, Option<String>>(5)?,
+                r.get::<_, String>(6)?,
+                r.get::<_, String>(7)?,
+            ))
+        };
+        let raws = match arg {
+            Some(a) => stmt
+                .query_map([a], mapper)?
+                .collect::<rusqlite::Result<Vec<_>>>()?,
+            None => stmt
+                .query_map([], mapper)?
+                .collect::<rusqlite::Result<Vec<_>>>()?,
+        };
+        raws.into_iter()
+            .map(
+                |(id, title, dst_cidr, action, state, approver, created, updated)| {
+                    Ok(crate::flowbgp::MitigationProposal {
+                        id: pid(&id)?,
+                        title,
+                        dst_cidr,
+                        action: serde_json::from_str(&action)?,
+                        state: crate::flowbgp::MitigationState::from_db(&state)
+                            .ok_or_else(|| anyhow!("bad mitigation state {state}"))?,
+                        approver,
+                        created_at: pts(&created)?,
+                        updated_at: pts(&updated)?,
+                    })
+                },
+            )
+            .collect()
     }
 
     // ---- web baselines ----
