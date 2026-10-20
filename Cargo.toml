@@ -1,0 +1,19 @@
+[package]
+name = "netdefense"
+version = "0.1.0"
+edition = "2021"
+description = "Proactive managed security monitoring (EASM) platform — authorised-scope scanning for client assets"
+license = "MIT"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = "0.7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.31", features = ["bundled"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1"
+
+[profile.release]
+strip = true
