@@ -151,6 +151,13 @@ impl Store {
                 last_status   TEXT,
                 PRIMARY KEY (source, product)
             );
+            CREATE TABLE IF NOT EXISTS web_baselines (
+                asset_id         TEXT PRIMARY KEY REFERENCES assets(id),
+                content_hash     TEXT NOT NULL,
+                header_grade     TEXT NOT NULL,
+                cert_expiry_days INTEGER,
+                updated_at       TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS vuln_candidates (
                 id         TEXT PRIMARY KEY,
                 asset_id   TEXT NOT NULL REFERENCES assets(id),
@@ -715,6 +722,35 @@ impl Store {
             params![cve_id, asset_id.to_string(), ts(&Utc::now())],
         )?;
         Ok(changed > 0)
+    }
+
+    // ---- web baselines ----
+
+    pub fn get_web_content_hash(&self, asset_id: Id) -> Result<Option<String>> {
+        let conn = self.lock()?;
+        let v: Option<String> = conn
+            .query_row(
+                "SELECT content_hash FROM web_baselines WHERE asset_id=?1",
+                params![asset_id.to_string()],
+                |r| r.get(0),
+            )
+            .ok();
+        Ok(v)
+    }
+
+    pub fn upsert_web_baseline(
+        &self,
+        asset_id: Id,
+        content_hash: &str,
+        header_grade: char,
+        cert_expiry_days: Option<i64>,
+    ) -> Result<()> {
+        self.lock()?.execute(
+            "INSERT OR REPLACE INTO web_baselines (asset_id, content_hash, header_grade, cert_expiry_days, updated_at)
+             VALUES (?1,?2,?3,?4,?5)",
+            params![asset_id.to_string(), content_hash, header_grade.to_string(), cert_expiry_days, ts(&Utc::now())],
+        )?;
+        Ok(())
     }
 
     // ---- vuln candidates (research lab / disclosure) ----

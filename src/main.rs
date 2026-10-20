@@ -20,6 +20,7 @@ mod scheduler;
 mod snmp;
 mod store;
 mod voip;
+mod web;
 
 use std::time::Duration;
 

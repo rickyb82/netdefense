@@ -48,6 +48,7 @@ pub fn router(store: Store) -> Router {
         .route("/candidates/:id/advance", post(advance_candidate))
         .route("/clients/:id/import-prtg", post(import_prtg))
         .route("/nms/interface-eval", post(nms_eval))
+        .route("/assets/:id/web-baseline", post(web_baseline))
         .with_state(store)
 }
 
@@ -595,6 +596,78 @@ async fn nms_eval(Json(b): Json<NmsEvalBody>) -> ApiResult {
     let util = bps.and_then(|v| crate::nms::utilization_pct(v, b.speed_bps));
     let verdict = crate::nms::evaluate(util, b.oper_up, b.warn_pct, b.crit_pct);
     Ok(Json(json!({ "bps": bps, "utilization_pct": util, "verdict": verdict })).into_response())
+}
+
+// ---- web estate monitoring ----
+
+#[derive(Deserialize)]
+struct WebBaselineBody {
+    /// Fetched page body (HTML/text).
+    body: String,
+    /// Present response header names.
+    #[serde(default)]
+    headers: Vec<String>,
+    /// Days until the TLS cert expires (from the TLS peek), if available.
+    cert_expiry_days: Option<i64>,
+}
+
+/// Record/compare a web baseline for an asset: content change (defacement),
+/// header grade, and TLS expiry. Raises alerts on a real content change and on
+/// an expiring/expired certificate. The live fetch/TLS peek feed this.
+async fn web_baseline(
+    State(store): State<Store>,
+    Path(asset_id): Path<Uuid>,
+    Json(b): Json<WebBaselineBody>,
+) -> ApiResult {
+    if store.get_asset(asset_id)?.is_none() {
+        return Ok(not_found("asset"));
+    }
+    let hash = crate::web::content_hash(&crate::web::normalize_body(&b.body));
+    let missing = crate::web::missing_security_headers(&b.headers);
+    let grade = crate::web::header_grade(missing.len());
+
+    let prev = store.get_web_content_hash(asset_id)?;
+    let verdict = crate::web::change_verdict(prev.as_deref(), &hash);
+    store.upsert_web_baseline(asset_id, &hash, grade, b.cert_expiry_days)?;
+
+    let now = Utc::now();
+    let mut alerts = 0;
+    if verdict == crate::web::ChangeVerdict::Changed {
+        store.insert_alert(&Alert {
+            id: Uuid::new_v4(),
+            asset_id,
+            scan_id: None,
+            severity: Severity::Medium,
+            summary: "Contenuto sito cambiato (possibile defacement)".into(),
+            detail: "L'hash del contenuto normalizzato è cambiato rispetto alla baseline.".into(),
+            created_at: now,
+        })?;
+        alerts += 1;
+    }
+    if let Some(days) = b.cert_expiry_days {
+        let sev = crate::web::cert_expiry_severity(days);
+        if sev >= Severity::Low {
+            store.insert_alert(&Alert {
+                id: Uuid::new_v4(),
+                asset_id,
+                scan_id: None,
+                severity: sev,
+                summary: format!("Certificato TLS: {days} giorni alla scadenza"),
+                detail: "Rinnovare il certificato per evitare interruzioni.".into(),
+                created_at: now,
+            })?;
+            alerts += 1;
+        }
+    }
+
+    Ok(Json(json!({
+        "verdict": verdict,
+        "header_grade": grade,
+        "missing_headers": missing,
+        "cert_severity": b.cert_expiry_days.map(|d| crate::web::cert_expiry_severity(d).as_str()),
+        "alerts_raised": alerts,
+    }))
+    .into_response())
 }
 
 // ---- helpers ----
