@@ -4,3 +4,4 @@ target
 *.db
 *.db-*
 *.md
+start.sh

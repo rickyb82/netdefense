@@ -33,10 +33,18 @@ sull'host per lo scan della superficie esterna.
 
 ## Docker — pronto all'avvio sul Mac (con i tool Kali inclusi)
 
-Richiede solo **Docker Desktop**. Un comando:
+Richiede solo **Docker Desktop**. Dalla cartella dei sorgenti:
 
 ```sh
 git clone https://github.com/rickyb82/netdefense && cd netdefense
+./start.sh          # controlla Docker, builda, avvia e apre la console
+```
+
+`start.sh` fa tutto: verifica che Docker Desktop sia attivo, builda l'immagine,
+avvia il container, attende che il servizio risponda e apre
+`http://127.0.0.1:8088/`. In alternativa, a mano:
+
+```sh
 docker compose up --build
 # poi apri: http://127.0.0.1:8088/
 ```
