@@ -33,7 +33,7 @@ impl ChatConfig {
             base_url: std::env::var("NETDEFENSE_LLM_URL")
                 .ok()
                 .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| "http://localhost:1234/v1".to_string()),
+                .unwrap_or_else(default_base_url),
             model: std::env::var("NETDEFENSE_LLM_MODEL")
                 .ok()
                 .filter(|s| !s.is_empty()),
@@ -46,16 +46,41 @@ impl ChatConfig {
     }
 }
 
+/// Default OpenAI-compatible base URL, by provider. LM Studio serves on :1234,
+/// Ollama on :11434 — both speak the same `/v1` API (incl. tools).
+fn default_base_url() -> String {
+    match std::env::var("NETDEFENSE_LLM_PROVIDER")
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "ollama" => "http://localhost:11434/v1".to_string(),
+        _ => "http://localhost:1234/v1".to_string(),
+    }
+}
+
 #[derive(Deserialize)]
 pub struct ChatRequest {
     /// The visible conversation so far ({role:"user"|"assistant", content}).
     pub messages: Vec<Value>,
     /// Optional model id override (otherwise the configured / first loaded one).
     pub model: Option<String>,
+    /// Optional OpenAI-compatible base URL override — lets the UI point at an
+    /// external LM Studio or Ollama server instead of the configured default.
+    pub base_url: Option<String>,
+}
+
+/// Effective base URL: the request override (if non-empty) else the config.
+fn pick_base(cfg: &ChatConfig, over: Option<&str>) -> String {
+    over.map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| cfg.base_url.clone())
 }
 
 fn client() -> Result<reqwest::Client> {
-    // Talk to LM Studio directly on localhost — never via an outbound proxy.
+    // Talk to the LLM server directly — never via an outbound proxy, so a
+    // localhost endpoint is reached straight.
     Ok(reqwest::Client::builder()
         .no_proxy()
         .timeout(Duration::from_secs(180))
@@ -132,14 +157,19 @@ pub struct ChatReply {
 /// any tool calls through the MCP layer, and returns the final text.
 pub async fn run(store: &Store, cfg: &ChatConfig, req: ChatRequest) -> Result<ChatReply> {
     let client = client()?;
-    let model = match req.model.or_else(|| cfg.model.clone()) {
+    let base = pick_base(cfg, req.base_url.as_deref());
+    let model = match req
+        .model
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| cfg.model.clone())
+    {
         Some(m) => m,
-        None => resolve_model(&client, &cfg.base_url)
+        None => resolve_model(&client, &base)
             .await
             .unwrap_or_else(|| "local-model".to_string()),
     };
     let tools = openai_tools();
-    let url = format!("{}/chat/completions", cfg.base_url.trim_end_matches('/'));
+    let url = format!("{}/chat/completions", base.trim_end_matches('/'));
 
     let mut messages = vec![system_prompt()];
     messages.extend(req.messages);
@@ -159,9 +189,9 @@ pub async fn run(store: &Store, cfg: &ChatConfig, req: ChatRequest) -> Result<Ch
             .json(&body)
             .send()
             .await
-            .map_err(|e| anyhow!("LM Studio non raggiungibile su {url}: {e}"))?
+            .map_err(|e| anyhow!("server LLM non raggiungibile su {url}: {e}"))?
             .error_for_status()
-            .map_err(|e| anyhow!("LM Studio ha risposto con errore: {e}"))?;
+            .map_err(|e| anyhow!("il server LLM ha risposto con errore: {e}"))?;
         let v: Value = resp.json().await?;
         let msg = v
             .get("choices")
@@ -227,10 +257,10 @@ pub async fn run(store: &Store, cfg: &ChatConfig, req: ChatRequest) -> Result<Ch
     })
 }
 
-/// Connectivity/status for the UI: is LM Studio reachable, and what models does
-/// it expose.
-pub async fn status(cfg: &ChatConfig) -> Value {
-    let base = cfg.base_url.trim_end_matches('/').to_string();
+/// Connectivity/status for the UI: is the LLM server reachable, and what models
+/// does it expose. `over` lets the UI probe an external/override endpoint.
+pub async fn status(cfg: &ChatConfig, over: Option<&str>) -> Value {
+    let base = pick_base(cfg, over).trim_end_matches('/').to_string();
     let client = match client() {
         Ok(c) => c,
         Err(e) => return json!({ "url": base, "ok": false, "error": e.to_string() }),

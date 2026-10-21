@@ -114,9 +114,14 @@ async fn chat_send(
     }
 }
 
-async fn chat_status() -> ApiResult {
+#[derive(Deserialize)]
+struct StatusQuery {
+    base_url: Option<String>,
+}
+
+async fn chat_status(Query(q): Query<StatusQuery>) -> ApiResult {
     let cfg = crate::chat::ChatConfig::from_env();
-    Ok(Json(crate::chat::status(&cfg).await).into_response())
+    Ok(Json(crate::chat::status(&cfg, q.base_url.as_deref()).await).into_response())
 }
 
 /// One aggregate payload that populates the whole SOC dashboard: rollup counts
