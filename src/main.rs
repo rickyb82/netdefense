@@ -16,7 +16,6 @@ mod mcp;
 mod nms;
 mod notify;
 mod nvd;
-mod prtg;
 mod scan;
 mod scheduler;
 mod snmp;

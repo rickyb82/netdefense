@@ -83,7 +83,7 @@ e il VoIP (3CX, softswitch Cirpack).
 - **Device facts** (`device_facts`): vendor, prodotto, **versione** e servizi di
   management/VoIP esposti per ciascun asset. La versione è ciò che serve alla
   correlazione CVE; si popola via `POST /assets/:id/facts` (in prospettiva da
-  RouterOS API/The Dude, SNMP, API vendor, import PRTG).
+  RouterOS API/The Dude, SNMP, API vendor).
 - **Motore CVE** (`cve.rs`): parsing feed **NVD 2.0**, confronto versioni
   RouterOS-style, `Cve::affects(versione)`. Tutto puro e testato.
 - **Correlazione** (`fleet::run_correlation`): per ogni CVE × device con
@@ -107,7 +107,7 @@ API aggiunte: `POST /cve`, `GET /cve`, `POST /cve/import-nvd?product=<token>`,
 | **M3** | Alerting su diff: alert persistiti + log + API | ✅ fatto |
 | **M4** | Flotta multi-vendor + motore/correlazione **CVE** + classificatore esposizione VoIP/mgmt | ✅ fatto (logica pura, testata) |
 | **M4b** | Poller **NVD 2.0** schedulato (reqwest, incrementale per prodotto, cursori `cve_sync_state`) → insert_cve + correlazione automatica | ✅ fatto (abilita con `NETDEFENSE_NVD_ENABLE=1`; advisory vendor: prossimo) |
-| M5 | **Collettori inventario**: **SNMP live** ✅ — codec SNMPv2c BER puro+testato, trasporto UDP (tokio, no deps esterne), poller che legge `sysDescr`/`sysObjectID` dai device → `device_facts` → correlazione CVE (`NETDEFENSE_SNMP_ENABLE=1`); classificatore+API `snmp-classify` ✅; **import PRTG** ✅. WALK interfacce (NMS live), RouterOS API/The Dude, NETCONF: da fare | in corso |
+| M5 | **Collettori inventario**: **SNMP live** ✅ — codec SNMPv2c BER puro+testato, trasporto UDP (tokio, no deps esterne), poller che legge `sysDescr`/`sysObjectID` dai device → `device_facts` → correlazione CVE (`NETDEFENSE_SNMP_ENABLE=1`); classificatore+API `snmp-classify` ✅. WALK interfacce (NMS live), RouterOS API/The Dude, NETCONF: da fare | in corso |
 | M6 | **NMS**: matematica banda da contatori (wrap 32/64 bit) + utilizzo + soglie/verdetto ✅ core+API; collector SNMP interfacce live + storicizzazione campioni: da fare | in corso |
 | **M7** | Consegna alert: flag `delivered` + `notify::deliver_pending` (webhook → endpoint Emily, at-least-once, retry) | ✅ fatto lato netdefense (manca il piccolo endpoint `POST /api/integrations/netdefense/alert` lato Emily che chiama `events.notify`) |
 | M8 | **VoIP** (SIP OPTIONS + fingerprint PBX) ✅ core+API; **estate web 200 siti** (scadenza TLS, voto header, change/defacement) ✅ core+API; invio UDP SIP live + fetch HTTPS/TLS-peek live + nikto/wpscan: da fare | in corso |
