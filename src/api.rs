@@ -22,6 +22,7 @@ pub fn router(store: Store) -> Router {
     Router::new()
         .route("/", get(index_ui))
         .route("/health", get(|| async { "ok" }))
+        .route("/overview", get(overview))
         .route("/clients", post(create_client).get(list_clients))
         .route("/clients/:id/assets", post(add_asset).get(list_assets))
         .route("/clients/:id/assets/bulk", post(bulk_add_assets))
@@ -89,6 +90,22 @@ type ApiResult = Result<Response, ApiError>;
 
 async fn index_ui() -> axum::response::Html<&'static str> {
     axum::response::Html(crate::ui::INDEX)
+}
+
+/// One aggregate payload that populates the whole SOC dashboard: rollup counts
+/// plus the most recent scans, alerts and findings across all assets.
+async fn overview(State(store): State<Store>) -> ApiResult {
+    let counts = store.overview_counts()?;
+    let recent_scans = store.recent_scans(12)?;
+    let recent_alerts = store.recent_alerts(12)?;
+    let recent_findings = store.recent_findings(14)?;
+    Ok(Json(json!({
+        "counts": counts,
+        "recent_scans": recent_scans,
+        "recent_alerts": recent_alerts,
+        "recent_findings": recent_findings,
+    }))
+    .into_response())
 }
 
 // ---- clients ----

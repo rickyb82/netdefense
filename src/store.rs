@@ -3,11 +3,13 @@
 //! primitive tuples and then *hydrated* into domain types, so all fallible
 //! parsing (UUIDs, timestamps, enums) happens outside rusqlite's row closure.
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, NaiveTime, Utc};
 use rusqlite::{params, Connection};
+use serde::Serialize;
 use uuid::Uuid;
 
 use crate::domain::*;
@@ -993,6 +995,218 @@ impl Store {
             )
             .collect()
     }
+
+    // ---- dashboard aggregates ---------------------------------------------
+    // Cheap COUNT/GROUP BY rollups for the SOC dashboard. These stay fast at
+    // estate scale (tens of thousands of assets) because they never hydrate
+    // rows — the database does the counting.
+
+    fn scalar_i64(&self, sql: &str) -> Result<i64> {
+        let conn = self.lock()?;
+        Ok(conn.query_row(sql, [], |r| r.get(0))?)
+    }
+
+    fn group_map(&self, sql: &str) -> Result<BTreeMap<String, i64>> {
+        let conn = self.lock()?;
+        let mut stmt = conn.prepare(sql)?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows.into_iter().collect())
+    }
+
+    /// Rollup counts for the dashboard header and severity breakdowns.
+    pub fn overview_counts(&self) -> Result<OverviewCounts> {
+        Ok(OverviewCounts {
+            clients: self.scalar_i64("SELECT COUNT(*) FROM clients")?,
+            assets: self.scalar_i64("SELECT COUNT(*) FROM assets")?,
+            assets_by_status: self
+                .group_map("SELECT auth_status, COUNT(*) FROM assets GROUP BY auth_status")?,
+            alerts: self.scalar_i64("SELECT COUNT(*) FROM alerts")?,
+            alerts_by_severity: self
+                .group_map("SELECT severity, COUNT(*) FROM alerts GROUP BY severity")?,
+            findings: self.scalar_i64("SELECT COUNT(*) FROM findings")?,
+            findings_by_severity: self
+                .group_map("SELECT severity, COUNT(*) FROM findings GROUP BY severity")?,
+            scans: self.scalar_i64("SELECT COUNT(*) FROM scans")?,
+            scans_by_status: self
+                .group_map("SELECT status, COUNT(*) FROM scans GROUP BY status")?,
+            cves: self.scalar_i64("SELECT COUNT(*) FROM cves")?,
+            cve_matches: self.scalar_i64("SELECT COUNT(*) FROM cve_matches")?,
+        })
+    }
+
+    /// Most recent scans across all assets, with the asset value and finding
+    /// count, for the activity feed.
+    pub fn recent_scans(&self, limit: i64) -> Result<Vec<RecentScan>> {
+        let conn = self.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT s.id, s.asset_id, a.value, s.kind, s.status, s.started_at, s.finished_at, s.note,
+                    (SELECT COUNT(*) FROM findings f WHERE f.scan_id = s.id)
+             FROM scans s JOIN assets a ON a.id = s.asset_id
+             ORDER BY s.started_at DESC LIMIT ?1",
+        )?;
+        let raws = stmt
+            .query_map([limit], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, String>(5)?,
+                    r.get::<_, Option<String>>(6)?,
+                    r.get::<_, Option<String>>(7)?,
+                    r.get::<_, i64>(8)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        raws.into_iter()
+            .map(
+                |(id, aid, val, kind, status, started, finished, note, fc)| {
+                    Ok(RecentScan {
+                        id: pid(&id)?,
+                        asset_id: pid(&aid)?,
+                        asset_value: val,
+                        kind: ScanKind::from_db(&kind)
+                            .ok_or_else(|| anyhow!("bad scan kind {kind}"))?,
+                        status: ScanStatus::from_db(&status)
+                            .ok_or_else(|| anyhow!("bad scan status {status}"))?,
+                        started_at: pts(&started)?,
+                        finished_at: pts_opt(finished)?,
+                        note,
+                        findings: fc,
+                    })
+                },
+            )
+            .collect()
+    }
+
+    /// Most recent alerts across all assets, with the asset value, for the feed.
+    pub fn recent_alerts(&self, limit: i64) -> Result<Vec<RecentAlert>> {
+        let conn = self.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT al.id, al.asset_id, a.value, al.severity, al.summary, al.detail, al.created_at
+             FROM alerts al JOIN assets a ON a.id = al.asset_id
+             ORDER BY al.created_at DESC LIMIT ?1",
+        )?;
+        let raws = stmt
+            .query_map([limit], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, String>(5)?,
+                    r.get::<_, String>(6)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        raws.into_iter()
+            .map(|(id, aid, val, sev, summary, detail, created)| {
+                Ok(RecentAlert {
+                    id: pid(&id)?,
+                    asset_id: pid(&aid)?,
+                    asset_value: val,
+                    severity: Severity::from_db(&sev)
+                        .ok_or_else(|| anyhow!("bad severity {sev}"))?,
+                    summary,
+                    detail,
+                    created_at: pts(&created)?,
+                })
+            })
+            .collect()
+    }
+
+    /// Most recent findings across all assets, with the asset value, for the feed.
+    pub fn recent_findings(&self, limit: i64) -> Result<Vec<RecentFinding>> {
+        let conn = self.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT f.asset_id, a.value, f.kind, f.key, f.title, f.severity, f.observed_at
+             FROM findings f JOIN assets a ON a.id = f.asset_id
+             ORDER BY f.observed_at DESC LIMIT ?1",
+        )?;
+        let raws = stmt
+            .query_map([limit], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, String>(5)?,
+                    r.get::<_, String>(6)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        raws.into_iter()
+            .map(|(aid, val, kind, key, title, sev, observed)| {
+                Ok(RecentFinding {
+                    asset_id: pid(&aid)?,
+                    asset_value: val,
+                    kind,
+                    key,
+                    title,
+                    severity: Severity::from_db(&sev)
+                        .ok_or_else(|| anyhow!("bad severity {sev}"))?,
+                    observed_at: pts(&observed)?,
+                })
+            })
+            .collect()
+    }
+}
+
+// ---- dashboard aggregate structs --------------------------------------------
+
+#[derive(Debug, Serialize)]
+pub struct OverviewCounts {
+    pub clients: i64,
+    pub assets: i64,
+    pub assets_by_status: BTreeMap<String, i64>,
+    pub alerts: i64,
+    pub alerts_by_severity: BTreeMap<String, i64>,
+    pub findings: i64,
+    pub findings_by_severity: BTreeMap<String, i64>,
+    pub scans: i64,
+    pub scans_by_status: BTreeMap<String, i64>,
+    pub cves: i64,
+    pub cve_matches: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RecentScan {
+    pub id: Id,
+    pub asset_id: Id,
+    pub asset_value: String,
+    pub kind: ScanKind,
+    pub status: ScanStatus,
+    pub started_at: DateTime<Utc>,
+    pub finished_at: Option<DateTime<Utc>>,
+    pub note: Option<String>,
+    pub findings: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RecentAlert {
+    pub id: Id,
+    pub asset_id: Id,
+    pub asset_value: String,
+    pub severity: Severity,
+    pub summary: String,
+    pub detail: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RecentFinding {
+    pub asset_id: Id,
+    pub asset_value: String,
+    pub kind: String,
+    pub key: String,
+    pub title: String,
+    pub severity: Severity,
+    pub observed_at: DateTime<Utc>,
 }
 
 // ---- raw row structs --------------------------------------------------------

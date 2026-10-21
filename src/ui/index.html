@@ -3,159 +3,504 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>NetDefense · Gestionale</title>
+<title>NetDefense · SOC</title>
 <style>
-  :root {
-    --bg:#f4f6f8; --surface:#fff; --surface-2:#eef1f4; --line:#d9e0e6;
-    --ink:#1a2530; --muted:#5e6e7c; --accent:#0d8a8a; --accent-ink:#fff;
-    --ok:#1f9d55; --warn:#c9770a; --danger:#c23b3b; --pending:#8a93a0;
-    --sans:system-ui,-apple-system,"Segoe UI",sans-serif; --mono:ui-monospace,Menlo,monospace;
-    color-scheme:light;
+  /* Dark security-operations console. Single committed dark theme. */
+  :root{
+    --bg:#070b11; --bg-2:#0b111a; --panel:#0e1621; --panel-2:#111c28; --line:#1b2a39;
+    --line-2:#243546; --ink:#dde7f1; --ink-dim:#aebccb; --muted:#73879a; --faint:#4b5c6d;
+    --accent:#2bd4c4; --accent-2:#3b82f6; --accent-soft:#2bd4c41e;
+    --crit:#ff5468; --high:#ff9a3d; --med:#ffd24a; --low:#46d39a; --info:#6b84a0;
+    --crit-soft:#ff546820; --high-soft:#ff9a3d20; --med-soft:#ffd24a1e; --low-soft:#46d39a1e;
+    --ok:#46d39a; --warn:#ffd24a; --danger:#ff5468;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    color-scheme:dark;
   }
-  @media (prefers-color-scheme:dark){ :root{
-    --bg:#0e141a; --surface:#161e26; --surface-2:#1c2630; --line:#2a3742;
-    --ink:#e4ecf2; --muted:#90a0ae; --accent:#2bb9b9; --accent-ink:#04201f;
-    --ok:#45c47d; --warn:#e2a24a; --danger:#e06a6a; --pending:#7d8894; color-scheme:dark; } }
   *{box-sizing:border-box;}
-  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.45;}
-  .wrap{max-width:1120px;margin:0 auto;padding:0 16px 48px;}
-  h1{font-size:20px;margin:0;} h2{font-size:14px;margin:0 0 14px;}
-  .muted{color:var(--muted);} .mono{font-family:var(--mono);}
-  header{position:sticky;top:0;z-index:10;background:var(--surface);border-bottom:1px solid var(--line);
-    padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
-  .brand{display:flex;align-items:center;gap:10px;}
-  .logo{width:30px;height:30px;border-radius:8px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;}
-  .grow{flex:1 1 20px;}
-  .chip{font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--line);display:inline-flex;align-items:center;gap:6px;}
-  .chip .dot{width:8px;height:8px;border-radius:50%;background:var(--pending);}
-  .chip.live .dot{background:var(--ok);} .chip.err .dot{background:var(--danger);}
-  input,select,textarea,button{font:inherit;}
-  input,select,textarea{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%;}
-  textarea{resize:vertical;min-height:110px;font-family:var(--mono);font-size:13px;}
+  body{margin:0;background:
+      radial-gradient(1100px 500px at 80% -8%, #0e2230, transparent 60%),
+      radial-gradient(900px 400px at 0% 0%, #10202c, transparent 55%),
+      var(--bg);
+    color:var(--ink);font-family:var(--sans);line-height:1.45;min-height:100vh;}
+  h1{font-size:17px;margin:0;} h2{font-size:14px;margin:0;}
+  h3{font-size:11px;margin:0 0 10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;}
+  .muted{color:var(--muted);} .small{font-size:12px;} .mono{font-family:var(--mono);}
+  a{color:var(--accent);}
+
+  /* top bar */
+  header{position:sticky;top:0;z-index:50;background:rgba(9,14,20,.86);backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--line);padding:11px 16px;display:flex;align-items:center;gap:12px;}
+  .brand{display:flex;align-items:center;gap:10px;min-width:0;}
+  .logo{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,var(--accent),var(--accent-2));
+    color:#04201f;display:grid;place-items:center;flex:0 0 auto;box-shadow:0 0 14px var(--accent-soft);}
+  .brand .sub{font-size:11px;color:var(--muted);}
+  .grow{flex:1 1 10px;}
+  .iconbtn{background:var(--panel-2);color:var(--ink);border:1px solid var(--line);border-radius:9px;
+    padding:8px 12px;cursor:pointer;font:inherit;font-weight:600;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;}
+  .iconbtn:hover{border-color:var(--accent);color:var(--accent);}
+  .iconbtn.on{border-color:var(--accent);color:var(--accent);}
+  .chip{font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--line);display:inline-flex;align-items:center;gap:6px;white-space:nowrap;}
+  .chip .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);}
+  .chip.live .dot{background:var(--ok);box-shadow:0 0 8px var(--ok);} .chip.err .dot{background:var(--danger);}
+
+  button{font:inherit;}
+  .btn{background:var(--accent);color:#04201f;border:1px solid transparent;border-radius:8px;padding:9px 14px;cursor:pointer;font-weight:700;white-space:nowrap;}
+  .btn:disabled{opacity:.45;cursor:not-allowed;}
+  .btn.ghost{background:transparent;color:var(--accent);border-color:var(--accent);}
+  .btn.sm{padding:5px 10px;font-size:12px;font-weight:600;}
+  .btn.danger{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 50%,var(--line));background:transparent;}
+  input,select,textarea{background:var(--bg-2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%;font:inherit;}
+  textarea{resize:vertical;min-height:96px;font-family:var(--mono);font-size:13px;}
   label{display:block;font-size:12px;color:var(--muted);margin:0 0 4px;}
-  .field{margin-bottom:10px;} .row{display:flex;gap:10px;flex-wrap:wrap;} .row>*{flex:1 1 140px;min-width:0;}
-  button{background:var(--accent);color:var(--accent-ink);border:1px solid transparent;border-radius:8px;padding:9px 14px;cursor:pointer;font-weight:600;white-space:nowrap;}
-  button.ghost{background:transparent;color:var(--accent);border-color:var(--accent);}
-  button.sm{padding:5px 10px;font-size:12px;font-weight:500;}
-  button.danger{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 50%,var(--line));background:transparent;}
-  .actions{display:flex;gap:6px;flex-wrap:wrap;}
-  button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
-  .cols{display:grid;grid-template-columns:340px 1fr;gap:16px;align-items:start;margin-top:16px;}
-  .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 1px 2px rgba(16,32,48,.06);padding:16px;}
-  .card+.card{margin-top:16px;}
-  .client-list{display:flex;flex-direction:column;gap:4px;margin-bottom:14px;max-height:320px;overflow-y:auto;}
-  .client-item{display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:8px;border:1px solid transparent;cursor:pointer;text-align:left;width:100%;background:transparent;color:var(--ink);font-weight:500;}
-  .client-item:hover{background:var(--surface-2);}
-  .client-item.active{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent);}
-  .tabs{display:flex;gap:6px;margin-bottom:14px;}
-  .tab{flex:0 0 auto;background:var(--surface-2);color:var(--ink);border:1px solid var(--line);font-weight:500;}
-  .tab.active{background:var(--accent);color:var(--accent-ink);border-color:transparent;}
-  table{width:100%;border-collapse:collapse;font-size:13px;} .table-scroll{overflow-x:auto;}
-  thead th{text-align:left;font-size:11px;letter-spacing:.03em;text-transform:uppercase;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap;}
-  tbody td{padding:9px 10px;border-bottom:1px solid var(--surface-2);}
-  tbody tr:hover{background:var(--surface-2);}
-  .pill{font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid var(--line);display:inline-flex;align-items:center;gap:5px;white-space:nowrap;}
-  .pill::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--pending);}
-  .pill.active{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 45%,var(--line));} .pill.active::before{background:var(--ok);}
-  .empty{color:var(--muted);text-align:center;padding:30px 10px;font-size:13px;}
+  .field{margin-bottom:10px;} .row{display:flex;gap:10px;flex-wrap:wrap;} .row>*{flex:1 1 130px;min-width:0;}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px;}
+
+  /* stage / dashboard */
+  .stage{max-width:1240px;margin:0 auto;padding:18px 16px 56px;}
+  .stage-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:16px;}
+  .stage-head .t{font-size:20px;font-weight:700;letter-spacing:-.01em;}
+  .stage-head .u{font-size:12px;color:var(--muted);font-family:var(--mono);}
+
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px;}
+  .kpi{background:linear-gradient(180deg,var(--panel),var(--panel-2));border:1px solid var(--line);border-radius:13px;padding:14px 16px;position:relative;overflow:hidden;}
+  .kpi::after{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:linear-gradient(90deg,var(--accent),transparent);opacity:.5;}
+  .kpi .lab{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);}
+  .kpi .num{font-size:30px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:2px;line-height:1.1;}
+  .kpi .sub{font-size:12px;color:var(--ink-dim);margin-top:3px;}
+  .kpi.alarm .num{color:var(--crit);} .kpi.alarm::after{background:linear-gradient(90deg,var(--crit),transparent);}
+  .kpi.warnk .num{color:var(--warn);}
+
+  .panels{display:grid;gap:14px;}
+  .prow3{grid-template-columns:repeat(3,1fr);} .prow2{grid-template-columns:repeat(2,1fr);}
+  @media (max-width:900px){.prow3,.prow2{grid-template-columns:1fr;}}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:15px 16px;min-width:0;}
+  .panel+.panel{}
+  .panel .ph{display:flex;align-items:center;gap:8px;margin-bottom:12px;}
+  .panel .ph .cnt{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--muted);}
+
+  /* severity bars */
+  .barrow{display:grid;grid-template-columns:92px 1fr 34px;align-items:center;gap:8px;margin-bottom:7px;}
+  .bartrack{height:9px;border-radius:6px;background:var(--bg-2);overflow:hidden;}
+  .barfill{display:block;height:100%;border-radius:6px;}
+  .barfill.s-critical{background:var(--crit);} .barfill.s-high{background:var(--high);}
+  .barfill.s-medium{background:var(--med);} .barfill.s-low{background:var(--low);} .barfill.s-info{background:var(--info);}
+  .barval{font-family:var(--mono);font-size:12px;color:var(--ink-dim);text-align:right;}
+
+  /* severity pills */
+  .sev{font-size:10.5px;padding:2px 8px;border-radius:5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap;}
+  .sev.critical{color:#2a0007;background:var(--crit);} .sev.high{color:#2a1200;background:var(--high);}
+  .sev.medium{color:#2a2200;background:var(--med);} .sev.low{color:#042616;background:var(--low);}
+  .sev.info{color:#07121c;background:var(--info);}
+
+  /* donut */
+  .donutwrap{display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
+  .dseg{transition:stroke-dasharray .3s;}
+  .dseg.st-active{stroke:var(--low);} .dseg.st-pending{stroke:var(--info);}
+  .dseg.st-suspended{stroke:var(--med);} .dseg.st-revoked{stroke:var(--crit);} .dseg.empty{stroke:var(--line);}
+  .dnum{fill:var(--ink);font-size:26px;font-weight:700;text-anchor:middle;font-family:var(--mono);}
+  .dsub{fill:var(--muted);font-size:10px;text-anchor:middle;text-transform:uppercase;letter-spacing:.1em;}
+  .legend{display:flex;flex-direction:column;gap:5px;font-size:12.5px;}
+  .leg{display:flex;align-items:center;gap:7px;color:var(--ink-dim);}
+  .leg .ldot{width:9px;height:9px;border-radius:2px;}
+  .ldot.st-active{background:var(--low);} .ldot.st-pending{background:var(--info);}
+  .ldot.st-suspended{background:var(--med);} .ldot.st-revoked{background:var(--crit);}
+
+  /* feeds */
+  .feed{display:flex;flex-direction:column;}
+  .feed .it{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-top:1px solid var(--line);cursor:pointer;}
+  .feed .it:first-child{border-top:0;}
+  .feed .it:hover{background:var(--panel-2);margin:0 -8px;padding:9px 8px;border-radius:8px;border-top-color:transparent;}
+  .feed .main{min-width:0;flex:1 1 auto;}
+  .feed .main .ttl{font-size:13px;overflow:hidden;text-overflow:ellipsis;}
+  .feed .main .meta{font-size:11.5px;color:var(--muted);font-family:var(--mono);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .feed .when{font-size:11px;color:var(--faint);white-space:nowrap;font-family:var(--mono);}
+  .stpill{font-size:10.5px;padding:2px 7px;border-radius:5px;border:1px solid var(--line);white-space:nowrap;}
+  .stpill.completed{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 45%,var(--line));}
+  .stpill.refused{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--line));}
+  .stpill.failed{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 45%,var(--line));}
+  .stpill.running,.stpill.queued{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,var(--line));}
+  .empty{color:var(--muted);text-align:center;padding:22px 10px;font-size:13px;}
+
+  .startbanner{background:linear-gradient(135deg,var(--accent-soft),transparent);border:1px solid var(--accent);
+    border-radius:13px;padding:18px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:16px;}
+  .startbanner .btn{margin-left:auto;}
+
+  /* drawer (gestionale) */
+  .overlay{position:fixed;inset:0;background:rgba(2,6,10,.6);z-index:55;opacity:0;pointer-events:none;transition:opacity .2s;}
+  .overlay.show{opacity:1;pointer-events:auto;}
+  .drawer{position:fixed;top:0;left:0;height:100%;width:min(440px,92vw);background:var(--bg-2);
+    border-right:1px solid var(--line);z-index:60;transform:translateX(-102%);transition:transform .24s ease;
+    overflow-y:auto;box-shadow:12px 0 40px rgba(0,0,0,.45);}
+  .drawer.open{transform:translateX(0);}
+  @media (prefers-reduced-motion:reduce){.drawer,.overlay{transition:none;}}
+  .drawer-head{position:sticky;top:0;background:var(--bg-2);border-bottom:1px solid var(--line);
+    padding:13px 16px;display:flex;align-items:center;gap:10px;z-index:2;}
+  .drawer-body{padding:14px 16px 40px;display:flex;flex-direction:column;gap:14px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:14px;}
+  .hdr-row{display:flex;align-items:center;gap:8px;margin-bottom:12px;}
   .count-badge{font-family:var(--mono);font-size:12px;color:var(--muted);margin-left:auto;}
-  .hdr-row{display:flex;align-items:center;gap:8px;margin-bottom:14px;}
-  #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:30;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;font-size:13px;max-width:90vw;}
+  .client-list{display:flex;flex-direction:column;gap:4px;margin-bottom:12px;max-height:200px;overflow-y:auto;}
+  .client-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;border:1px solid transparent;cursor:pointer;text-align:left;width:100%;background:transparent;color:var(--ink);font-weight:500;}
+  .client-item:hover{background:var(--panel-2);}
+  .client-item.active{border-color:var(--accent);background:var(--accent-soft);}
+  .tabs{display:flex;gap:6px;margin-bottom:12px;}
+  .tab{flex:0 0 auto;background:var(--panel-2);color:var(--ink);border:1px solid var(--line);font-weight:600;border-radius:8px;padding:7px 12px;cursor:pointer;}
+  .tab.active{background:var(--accent);color:#04201f;border-color:transparent;}
+  table{width:100%;border-collapse:collapse;font-size:13px;} .table-scroll{overflow-x:auto;}
+  thead th{text-align:left;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap;}
+  tbody td{padding:8px;border-bottom:1px solid var(--panel-2);vertical-align:top;}
+  tbody tr.sel{background:var(--accent-soft);}
+  tbody tr.clickable{cursor:pointer;} tbody tr.clickable:hover{background:var(--panel-2);}
+  .pill{font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid var(--line);display:inline-flex;align-items:center;gap:5px;white-space:nowrap;}
+  .pill::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--info);}
+  .pill.active{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 45%,var(--line));} .pill.active::before{background:var(--ok);}
+  .pill.suspended{color:var(--warn);} .pill.suspended::before{background:var(--warn);}
+  .pill.revoked{color:var(--danger);} .pill.revoked::before{background:var(--danger);}
+  .actions{display:flex;gap:6px;flex-wrap:wrap;}
+  .note-box{border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:8px;padding:9px 11px;background:var(--panel-2);font-size:12.5px;}
+  .note-box.warn{border-left-color:var(--warn);} .note-box.danger{border-left-color:var(--danger);} .note-box.ok{border-left-color:var(--ok);}
+  .detail-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px;}
+  .detail-head .val{font-family:var(--mono);font-size:14px;font-weight:600;word-break:break-all;}
+  .kv{font-size:12px;color:var(--muted);margin-bottom:12px;}.kv b{color:var(--ink);font-weight:500;}
+  .scan-btns{display:flex;gap:8px;flex-wrap:wrap;}
+  .keys{font-family:var(--mono);font-size:12px;display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;}
+  .keys .k{padding:2px 7px;border-radius:5px;background:var(--panel-2);border:1px solid var(--line);}
+  .keys .k.add{border-color:color-mix(in srgb,var(--danger) 50%,var(--line));color:var(--danger);}
+  .keys .k.rem{color:var(--muted);text-decoration:line-through;}
+  .fdetail{font-size:12px;color:var(--muted);white-space:pre-wrap;}
+  .alert-item{border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:flex;gap:9px;align-items:flex-start;font-size:12.5px;}
+  .alert-item+.alert-item{margin-top:6px;}
+  .seg{display:flex;flex-direction:column;gap:14px;}
+  .spinner{width:13px;height:13px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;display:inline-block;vertical-align:-2px;animation:spin .7s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  @media (prefers-reduced-motion:reduce){.spinner{animation:none;}}
+
+  #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:80;background:var(--panel);
+    color:var(--ink);border:1px solid var(--line);padding:10px 16px;border-radius:9px;font-size:13px;max-width:90vw;box-shadow:0 8px 30px rgba(0,0,0,.5);}
   [hidden]{display:none!important;}
-  @media (max-width:760px){.cols{grid-template-columns:1fr;}}
 </style>
 </head>
 <body>
+
 <header>
+  <button class="iconbtn" id="menuBtn" aria-label="Apri gestionale" aria-expanded="false">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    Gestionale
+  </button>
   <div class="brand">
     <span class="logo" aria-hidden="true">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><path d="M7 7h.01M7 17h.01"/></svg>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 3v5c0 4.2-2.8 7.9-7 9-4.2-1.1-7-4.8-7-9V6l7-3z"/></svg>
     </span>
-    <div><h1>NetDefense · Gestionale</h1><div class="muted" style="font-size:11px">Clienti &amp; device</div></div>
+    <div><h1>NetDefense · SOC</h1><div class="sub">Security Operations Center</div></div>
   </div>
   <div class="grow"></div>
+  <button class="iconbtn on" id="autoBtn" title="Aggiornamento automatico">⟳ Auto</button>
   <span class="chip" id="connChip"><span class="dot"></span><span id="connText">…</span></span>
 </header>
 
-<div class="wrap">
-  <div class="cols">
-    <div>
-      <div class="card">
-        <div class="hdr-row"><h2>Clienti</h2><span class="count-badge" id="clientCount">0</span></div>
-        <div class="client-list" id="clientList"></div>
-        <h2>Nuovo cliente</h2>
-        <div class="field"><label for="cName">Nome</label><input id="cName" placeholder="ACME S.p.A." /></div>
-        <div class="field"><label for="cEmail">Email referente</label><input id="cEmail" placeholder="it@acme.example" /></div>
-        <button id="addClientBtn">＋ Aggiungi cliente</button>
+<!-- gestionale drawer -->
+<div class="overlay" id="overlay"></div>
+<aside class="drawer" id="drawer" aria-label="Gestionale" aria-hidden="true">
+  <div class="drawer-head">
+    <h2>Gestionale</h2>
+    <div class="grow"></div>
+    <button class="iconbtn" id="closeDrawer" aria-label="Chiudi">✕</button>
+  </div>
+  <div class="drawer-body">
+    <div class="card">
+      <div class="hdr-row"><h3 style="margin:0">Clienti</h3><span class="count-badge" id="clientCount">0</span></div>
+      <div class="client-list" id="clientList"></div>
+      <div class="row">
+        <div class="field" style="flex:2 1 150px"><label for="cName">Nuovo cliente</label><input id="cName" placeholder="ACME S.p.A." /></div>
+        <div class="field" style="flex:2 1 150px"><label for="cEmail">Email referente</label><input id="cEmail" placeholder="it@acme.example" /></div>
+      </div>
+      <button class="btn" id="addClientBtn">＋ Aggiungi cliente</button>
+    </div>
+
+    <div class="card">
+      <div class="hdr-row"><h3 style="margin:0" id="devHeading">Aggiungi device</h3><span class="count-badge" id="activeClientName">nessun cliente</span></div>
+      <div class="tabs"><button class="tab active" id="tabSingle">Singolo</button><button class="tab" id="tabBulk">Massivo</button></div>
+      <div id="paneSingle">
+        <div class="row">
+          <div class="field" style="flex:1 1 110px"><label for="sKind">Tipo</label>
+            <select id="sKind"><option value="host">host</option><option value="domain">domain</option><option value="url">url</option><option value="cidr_range">cidr_range</option></select></div>
+          <div class="field" style="flex:2 1 200px"><label for="sValue">Indirizzo / host</label><input id="sValue" placeholder="203.0.113.10" /></div>
+        </div>
+        <button class="btn" id="addDeviceBtn">＋ Aggiungi device</button>
+      </div>
+      <div id="paneBulk" hidden>
+        <div class="field" style="max-width:150px"><label for="bKind">Tipo</label>
+          <select id="bKind"><option value="host">host</option><option value="domain">domain</option><option value="url">url</option><option value="cidr_range">cidr_range</option></select></div>
+        <div class="field"><label for="bValues">Uno per riga (incolla da CRM / inventario)</label><textarea id="bValues" placeholder="10.0.0.1&#10;10.0.0.2&#10;edge.rm.example"></textarea></div>
+        <button class="btn" id="addBulkBtn">＋ Aggiungi in blocco</button>
       </div>
     </div>
-    <div>
-      <div class="card">
-        <div class="hdr-row"><h2 id="devHeading">Aggiungi device</h2><span class="count-badge" id="activeClientName">nessun cliente</span></div>
-        <div class="tabs"><button class="tab active" id="tabSingle">Singolo</button><button class="tab" id="tabBulk">Massivo</button></div>
-        <div id="paneSingle">
-          <div class="row">
-            <div class="field" style="flex:1 1 120px"><label for="sKind">Tipo</label>
-              <select id="sKind"><option value="host">host</option><option value="domain">domain</option><option value="url">url</option><option value="cidr_range">cidr_range</option></select></div>
-            <div class="field" style="flex:2 1 220px"><label for="sValue">Indirizzo / host</label><input id="sValue" placeholder="203.0.113.10" /></div>
-          </div>
-          <button id="addDeviceBtn">＋ Aggiungi device</button>
-        </div>
-        <div id="paneBulk" hidden>
-          <div class="row"><div class="field" style="flex:1 1 120px"><label for="bKind">Tipo</label>
-            <select id="bKind"><option value="host">host</option><option value="domain">domain</option><option value="url">url</option><option value="cidr_range">cidr_range</option></select></div></div>
-          <div class="field"><label for="bValues">Uno per riga (incolla da CRM / inventario)</label><textarea id="bValues" placeholder="10.0.0.1&#10;10.0.0.2&#10;edge.rm.example"></textarea></div>
-          <button id="addBulkBtn">＋ Aggiungi in blocco</button>
-        </div>
+
+    <div class="card">
+      <div class="hdr-row"><h3 style="margin:0">Device del cliente</h3><span class="count-badge" id="devCount">0</span></div>
+      <div class="muted small" style="margin:-6px 0 10px">Clicca un device per autorizzarlo, scansionarlo e vederne i risultati.</div>
+      <div class="table-scroll"><table>
+        <thead><tr><th>Device</th><th>Tipo</th><th>Stato</th><th>Azioni</th></tr></thead>
+        <tbody id="devRows"></tbody>
+      </table></div>
+      <div class="empty" id="devEmpty" hidden>Nessun device. Aggiungine uno qui sopra.</div>
+    </div>
+
+    <div class="card" id="detailCard" hidden>
+      <div class="detail-head">
+        <span class="val mono" id="dVal"></span>
+        <span class="pill" id="dStatus"></span>
+        <span class="count-badge" id="dKind"></span>
       </div>
-      <div class="card">
-        <div class="hdr-row"><h2>Device del cliente</h2><span class="count-badge" id="devCount">0</span></div>
-        <div class="table-scroll"><table>
-          <thead><tr><th>Device</th><th>Tipo</th><th>Stato</th><th>Azioni</th></tr></thead>
-          <tbody id="devRows"></tbody>
-        </table></div>
-        <div class="empty" id="devEmpty" hidden>Nessun device per questo cliente. Aggiungine uno sopra.</div>
+      <div class="kv" id="dRoeLine"></div>
+      <div class="seg">
+        <div id="dAuthSec">
+          <h3>1 · Autorizza la scansione</h3>
+          <div class="note-box warn" style="margin-bottom:10px">Device <b>non autorizzato</b>. Serve il riferimento a una Rules-of-Engagement / contratto firmato: senza, il gate rifiuta.</div>
+          <div class="field"><label for="dRoe">Riferimento RoE firmato *</label><input id="dRoe" placeholder="RoE-2026-ACME-001" /></div>
+          <div class="row">
+            <div class="field"><label for="dWinStart">Finestra inizio (UTC, opz.)</label><input id="dWinStart" placeholder="02:00:00" /></div>
+            <div class="field"><label for="dWinEnd">Finestra fine (UTC, opz.)</label><input id="dWinEnd" placeholder="06:00:00" /></div>
+          </div>
+          <button class="btn" id="dAuthBtn">Autorizza per la scansione</button>
+        </div>
+        <div id="dScanSec">
+          <h3>Lancia una scansione</h3>
+          <div class="scan-btns">
+            <button class="btn ghost" data-scan="external_surface">▶ Superficie esterna</button>
+            <button class="btn ghost" data-scan="sql_injection">▶ SQL injection</button>
+            <button class="btn ghost" data-scan="web_hygiene" disabled title="In arrivo">Igiene web</button>
+            <button class="btn ghost" data-scan="availability" disabled title="In arrivo">Disponibilità</button>
+          </div>
+          <div class="muted small" style="margin-top:6px">Superficie esterna usa <span class="mono">nmap</span> (se installato). SQL injection è nativa e va su device di tipo <span class="mono">url</span>.</div>
+          <button class="btn sm danger" id="dSuspendBtn" style="margin-top:10px">Sospendi autorizzazione</button>
+        </div>
+        <div id="dOutcome" hidden>
+          <h3>Esito ultima scansione</h3>
+          <div id="dOutcomeBody" style="display:flex;flex-direction:column;gap:8px;font-size:13px"></div>
+        </div>
+        <div>
+          <div class="hdr-row"><h3 style="margin:0">Controlli rilevati (findings)</h3><span class="count-badge" id="dFindCount">0</span></div>
+          <div class="table-scroll"><table>
+            <thead><tr><th>Sev.</th><th>Tipo</th><th>Chiave</th><th>Titolo</th></tr></thead>
+            <tbody id="dFindRows"></tbody>
+          </table></div>
+          <div class="empty" id="dFindEmpty">Nessun finding ancora. Lancia una scansione.</div>
+        </div>
+        <div>
+          <div class="hdr-row"><h3 style="margin:0">Alert del device</h3><span class="count-badge" id="dAlertCount">0</span></div>
+          <div id="dAlertList"></div>
+          <div class="empty" id="dAlertEmpty">Nessun alert per questo device.</div>
+        </div>
       </div>
     </div>
   </div>
-</div>
+</aside>
+
+<!-- SOC dashboard stage -->
+<main class="stage">
+  <div class="stage-head">
+    <span class="t">Panoramica sicurezza</span>
+    <span class="grow"></span>
+    <span class="u" id="updated">—</span>
+  </div>
+  <div id="startBanner" hidden></div>
+  <div class="kpis" id="kpis"></div>
+  <div class="panels prow3" style="margin-bottom:14px">
+    <div class="panel"><div class="ph"><h3 style="margin:0">Stato autorizzazioni</h3></div><div id="pAuth"></div></div>
+    <div class="panel"><div class="ph"><h3 style="margin:0">Alert per severità</h3><span class="cnt" id="pAlertSevCnt"></span></div><div id="pAlertSev"></div></div>
+    <div class="panel"><div class="ph"><h3 style="margin:0">Findings per severità</h3><span class="cnt" id="pFindSevCnt"></span></div><div id="pFindSev"></div></div>
+  </div>
+  <div class="panels prow2" style="margin-bottom:14px">
+    <div class="panel"><div class="ph"><h3 style="margin:0">Attività scansioni</h3><span class="cnt" id="pScanCnt"></span></div><div class="feed" id="pScans"></div></div>
+    <div class="panel"><div class="ph"><h3 style="margin:0">Alert recenti</h3><span class="cnt" id="pAlertCnt"></span></div><div class="feed" id="pAlerts"></div></div>
+  </div>
+  <div class="panels">
+    <div class="panel"><div class="ph"><h3 style="margin:0">Ultimi controlli rilevati</h3><span class="cnt" id="pFindCnt"></span></div><div class="feed" id="pFinds"></div></div>
+  </div>
+</main>
+
 <div id="toast" hidden></div>
 
 <script>
 "use strict";
 const $=(s)=>document.querySelector(s);
 const esc=(s)=>String(s??"").replace(/[&<>"]/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const state={clients:[],activeId:null,devices:[]};
+const SCAN_LABEL={external_surface:"Superficie esterna",sql_injection:"SQL injection",web_hygiene:"Igiene web",availability:"Disponibilità",vuln:"Vulnerabilità"};
+const SEV_ORDER=["critical","high","medium","low","info"];
+const state={clients:[],activeId:null,devices:[],selId:null,findings:[],alerts:[],scanning:false,outcome:null,auto:true};
 
-function toast(m){const t=$("#toast");t.textContent=m;t.hidden=false;clearTimeout(toast._t);toast._t=setTimeout(()=>t.hidden=true,2600);}
+function toast(m){const t=$("#toast");t.textContent=m;t.hidden=false;clearTimeout(toast._t);toast._t=setTimeout(()=>t.hidden=true,3400);}
+function setConn(ok){const c=$("#connChip");c.className="chip "+(ok?"live":"err");$("#connText").textContent=ok?"connesso":"API offline";}
+function fmtTime(iso){ if(!iso) return "—"; const d=new Date(iso); if(isNaN(d)) return "—";
+  const now=Date.now(),diff=(now-d.getTime())/1000;
+  if(diff<60) return "ora"; if(diff<3600) return Math.floor(diff/60)+"m fa"; if(diff<86400) return Math.floor(diff/3600)+"h fa";
+  return d.toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit"})+" "+d.toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"}); }
 
-// same-origin API (served by the netdefense binary itself)
 async function api(method,path,body){
   const r=await fetch(path,{method,headers:{"Content-Type":"application/json"},body:body?JSON.stringify(body):undefined});
   if(!r.ok) throw new Error("HTTP "+r.status);
   return r.status===204?null:r.json();
 }
+async function apiRaw(method,path,body){
+  const r=await fetch(path,{method,headers:{"Content-Type":"application/json"},body:body?JSON.stringify(body):undefined});
+  let data=null; try{ data=await r.json(); }catch{}
+  return {ok:r.ok,status:r.status,data};
+}
 
-function setConn(ok){const c=$("#connChip");c.className="chip "+(ok?"live":"err");$("#connText").textContent=ok?"connesso":"API non raggiungibile";}
+/* ====================== DASHBOARD ====================== */
+async function loadOverview(){
+  let d;
+  try{ d=await api("GET","/overview"); setConn(true); }
+  catch{ setConn(false); return; }
+  renderDashboard(d);
+  $("#updated").textContent="aggiornato "+new Date().toLocaleTimeString("it-IT");
+}
+function num(map,k){return (map&&map[k])||0;}
+function renderDashboard(d){
+  const c=d.counts||{};
+  const abs=c.assets_by_status||{}, als=c.alerts_by_severity||{}, fis=c.findings_by_severity||{}, scs=c.scans_by_status||{};
+  const active=num(abs,"active"),pending=num(abs,"pending"),critAl=num(als,"critical")+num(als,"high");
+  const bn=$("#startBanner");
+  if((c.assets||0)===0){
+    bn.hidden=false;
+    bn.className="startbanner";
+    bn.innerHTML=`<div><b>Nessun device monitorato.</b><div class="muted small" style="margin-top:3px">Apri il Gestionale, aggiungi un cliente e un device, autorizzalo e lancia la prima scansione.</div></div><button class="btn" id="bnOpen">Apri il Gestionale ›</button>`;
+    $("#bnOpen").addEventListener("click",openDrawer);
+  } else bn.hidden=true;
+
+  $("#kpis").innerHTML=[
+    kpi("Device monitorati",c.assets||0,`${active} attivi · ${pending} in attesa`),
+    kpi("Alert aperti",c.alerts||0,`${critAl} critici/alti`,critAl>0?"alarm":""),
+    kpi("Scansioni",c.scans||0,`${num(scs,"completed")} ok · ${num(scs,"refused")} rifiutate · ${num(scs,"failed")} fallite`),
+    kpi("Findings",c.findings||0,`${num(fis,"critical")} critici · ${num(fis,"high")} alti`,num(fis,"critical")>0?"alarm":(num(fis,"high")>0?"warnk":"")),
+    kpi("CVE correlate",c.cve_matches||0,`${c.cves||0} CVE note in archivio`),
+    kpi("Clienti",c.clients||0,"gestiti dalla piattaforma"),
+  ].join("");
+
+  // donut auth
+  $("#pAuth").innerHTML=donut([
+    {label:"autorizzati",value:active,cls:"st-active"},
+    {label:"in attesa",value:pending,cls:"st-pending"},
+    {label:"sospesi",value:num(abs,"suspended"),cls:"st-suspended"},
+    {label:"revocati",value:num(abs,"revoked"),cls:"st-revoked"},
+  ],(c.assets||0),"device");
+
+  $("#pAlertSev").innerHTML=sevBars(als);
+  $("#pAlertSevCnt").textContent=(c.alerts||0)+" totali";
+  $("#pFindSev").innerHTML=sevBars(fis);
+  $("#pFindSevCnt").textContent=(c.findings||0)+" totali";
+
+  renderScanFeed(d.recent_scans||[]);
+  renderAlertFeed(d.recent_alerts||[]);
+  renderFindFeed(d.recent_findings||[]);
+}
+function kpi(lab,n,sub,cls){
+  return `<div class="kpi ${cls||""}"><div class="lab">${esc(lab)}</div><div class="num">${n}</div><div class="sub">${esc(sub)}</div></div>`;
+}
+function sevBars(map){
+  const total=SEV_ORDER.reduce((s,k)=>s+num(map,k),0);
+  if(!total) return `<div class="muted small">Nessun dato ancora.</div>`;
+  return SEV_ORDER.map((k)=>{const n=num(map,k); if(!n) return "";
+    const pct=Math.max(3,Math.round(n/total*100));
+    return `<div class="barrow"><span><span class="sev ${k}">${k}</span></span>
+      <span class="bartrack"><span class="barfill s-${k}" style="width:${pct}%"></span></span>
+      <span class="barval">${n}</span></div>`;}).join("");
+}
+function donut(parts,centerNum,centerSub){
+  const total=parts.reduce((s,p)=>s+p.value,0);
+  const r=52,C=2*Math.PI*r; let off=0;
+  const segs=total? parts.filter((p)=>p.value>0).map((p)=>{
+      const len=p.value/total*C;
+      const el=`<circle r="${r}" cx="70" cy="70" fill="none" stroke-width="15" class="dseg ${p.cls}" stroke-linecap="butt" stroke-dasharray="${len.toFixed(2)} ${(C-len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 70 70)"></circle>`;
+      off+=len; return el;
+    }).join("") : `<circle r="${r}" cx="70" cy="70" fill="none" stroke-width="15" class="dseg empty"></circle>`;
+  const legend=parts.map((p)=>`<div class="leg"><span class="ldot ${p.cls}"></span>${esc(p.label)} <b style="margin-left:auto">${p.value}</b></div>`).join("");
+  return `<div class="donutwrap"><svg viewBox="0 0 140 140" width="118" height="118" aria-hidden="true">${segs}<text x="70" y="66" class="dnum">${centerNum}</text><text x="70" y="84" class="dsub">${esc(centerSub)}</text></svg><div class="legend" style="flex:1 1 120px">${legend}</div></div>`;
+}
+function renderScanFeed(rows){
+  $("#pScanCnt").textContent=rows.length?rows.length+" recenti":"";
+  const el=$("#pScans");
+  if(!rows.length){ el.innerHTML=`<div class="empty">Nessuna scansione ancora.</div>`; return; }
+  el.innerHTML=rows.map((s)=>`<div class="it" data-asset="${esc(s.asset_id)}">
+    <div class="main"><div class="ttl">${esc(SCAN_LABEL[s.kind]||s.kind)} · <span class="mono">${esc(s.asset_value)}</span></div>
+      <div class="meta">${s.findings} findings</div></div>
+    <span class="stpill ${esc(s.status)}">${esc(stLabel(s.status))}</span>
+    <span class="when">${esc(fmtTime(s.started_at))}</span></div>`).join("");
+}
+function renderAlertFeed(rows){
+  $("#pAlertCnt").textContent=rows.length?rows.length+" recenti":"";
+  const el=$("#pAlerts");
+  if(!rows.length){ el.innerHTML=`<div class="empty">Nessun alert.</div>`; return; }
+  el.innerHTML=rows.map((a)=>`<div class="it" data-asset="${esc(a.asset_id)}">
+    <span class="sev ${esc(a.severity)}">${esc(a.severity)}</span>
+    <div class="main"><div class="ttl">${esc(a.summary)}</div>
+      <div class="meta">${esc(a.asset_value)}</div></div>
+    <span class="when">${esc(fmtTime(a.created_at))}</span></div>`).join("");
+}
+function renderFindFeed(rows){
+  $("#pFindCnt").textContent=rows.length?rows.length+" recenti":"";
+  const el=$("#pFinds");
+  if(!rows.length){ el.innerHTML=`<div class="empty">Nessun controllo rilevato ancora. Lancia una scansione dal Gestionale.</div>`; return; }
+  el.innerHTML=rows.map((f)=>`<div class="it" data-asset="${esc(f.asset_id)}">
+    <span class="sev ${esc(f.severity)}">${esc(f.severity)}</span>
+    <div class="main"><div class="ttl">${esc(f.title)} <span class="mono muted">${esc(f.key)}</span></div>
+      <div class="meta">${esc(f.kind)} · ${esc(f.asset_value)}</div></div>
+    <span class="when">${esc(fmtTime(f.observed_at))}</span></div>`).join("");
+}
+function stLabel(s){return {completed:"completata",refused:"rifiutata",failed:"fallita",running:"in corso",queued:"in coda"}[s]||s;}
+
+// clicking a feed row opens that device in the gestionale
+document.querySelectorAll("#pScans,#pAlerts,#pFinds").forEach((feed)=>{
+  feed.addEventListener("click",(e)=>{const it=e.target.closest("[data-asset]"); if(it) openAsset(it.dataset.asset);});
+});
+
+/* ====================== DRAWER ====================== */
+function openDrawer(){ $("#drawer").classList.add("open"); $("#drawer").setAttribute("aria-hidden","false");
+  $("#overlay").classList.add("show"); $("#menuBtn").setAttribute("aria-expanded","true"); }
+function closeDrawer(){ $("#drawer").classList.remove("open"); $("#drawer").setAttribute("aria-hidden","true");
+  $("#overlay").classList.remove("show"); $("#menuBtn").setAttribute("aria-expanded","false"); }
+function toggleDrawer(){ $("#drawer").classList.contains("open")?closeDrawer():openDrawer(); }
+$("#menuBtn").addEventListener("click",toggleDrawer);
+$("#closeDrawer").addEventListener("click",closeDrawer);
+$("#overlay").addEventListener("click",closeDrawer);
+document.addEventListener("keydown",(e)=>{ if(e.key==="Escape") closeDrawer(); });
+
+async function openAsset(assetId){
+  try{
+    const a=await api("GET",`/assets/${assetId}`);
+    if(!a||!a.client_id){ openDrawer(); return; }
+    if(state.activeId!==a.client_id){ state.activeId=a.client_id; renderClients(); await loadDevices(a.client_id); }
+    openDrawer();
+    await selectDevice(assetId);
+  }catch{ openDrawer(); }
+}
+
+/* ====================== GESTIONALE ====================== */
+async function refreshAll(){ await Promise.all([loadOverview(), state.activeId?loadDevices(state.activeId):Promise.resolve()]); }
 
 async function loadClients(){
   try{ state.clients=await api("GET","/clients"); setConn(true); }
-  catch{ setConn(false); toast("Impossibile contattare l'API"); return; }
+  catch{ setConn(false); toast("API non raggiungibile"); return; }
   renderClients();
   if(!state.activeId && state.clients.length) selectClient(state.clients[0].id);
   else renderDevices();
 }
 async function loadDevices(id){
+  if(!id) return;
   try{ state.devices=await api("GET",`/clients/${id}/assets`); }catch{ state.devices=[]; }
-  renderDevices();
+  if(state.selId && !state.devices.some((d)=>d.id===state.selId)) clearSelection();
+  renderDevices(); if(state.selId) renderDetail();
 }
-function selectClient(id){state.activeId=id;renderClients();loadDevices(id);}
+function selectClient(id){ state.activeId=id; clearSelection(); renderClients(); loadDevices(id); }
+function clearSelection(){ state.selId=null;state.findings=[];state.alerts=[];state.outcome=null;$("#detailCard").hidden=true; }
 
 async function addClient(){
   const name=$("#cName").value.trim(),contact_email=$("#cEmail").value.trim();
   if(!name) return toast("Inserisci il nome del cliente");
   try{ const c=await api("POST","/clients",{name,contact_email}); state.clients.push(c);
-    $("#cName").value="";$("#cEmail").value=""; renderClients(); selectClient(c.id); toast("Cliente aggiunto"); }
+    $("#cName").value="";$("#cEmail").value=""; renderClients(); selectClient(c.id); loadOverview(); toast("Cliente aggiunto"); }
   catch(e){ toast("Errore: "+e.message); }
 }
 async function addDevice(){
@@ -163,7 +508,7 @@ async function addDevice(){
   const kind=$("#sKind").value,value=$("#sValue").value.trim();
   if(!value) return toast("Inserisci l'indirizzo del device");
   try{ await api("POST",`/clients/${state.activeId}/assets`,{kind,value}); $("#sValue").value="";
-    await loadDevices(state.activeId); toast("Device aggiunto"); }
+    await loadDevices(state.activeId); loadOverview(); toast("Device aggiunto"); }
   catch(e){ toast("Errore: "+e.message); }
 }
 async function addBulk(){
@@ -172,29 +517,62 @@ async function addBulk(){
   const values=$("#bValues").value.split("\n").map((s)=>s.trim()).filter(Boolean);
   if(!values.length) return toast("Incolla almeno un device");
   try{ const res=await api("POST",`/clients/${state.activeId}/assets/bulk`,{kind,values});
-    $("#bValues").value=""; await loadDevices(state.activeId); toast(`Aggiunti ${res.added} device (${res.received} ricevuti)`); }
+    $("#bValues").value=""; await loadDevices(state.activeId); loadOverview(); toast(`Aggiunti ${res.added} device (${res.received} ricevuti)`); }
   catch(e){ toast("Errore: "+e.message); }
 }
-async function authorize(assetId){
-  const roe=prompt("Riferimento contratto / RoE firmato (obbligatorio):","RoE-2026-");
-  if(roe===null) return; if(!roe.trim()) return toast("Serve un riferimento RoE");
-  try{ await api("POST",`/assets/${assetId}/authorize`,{status:"active",roe_reference:roe.trim()});
-    await loadDevices(state.activeId); toast("Device autorizzato"); }
+async function selectDevice(id){
+  state.selId=id; state.outcome=null; $("#detailCard").hidden=false;
+  renderDevices(); renderDetail();
+  await Promise.all([loadFindings(id),loadDeviceAlerts(id)]);
+  renderDetail();
+  $("#detailCard").scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+async function loadFindings(id){ try{ state.findings=await api("GET",`/assets/${id}/findings`); }catch{ state.findings=[]; } }
+async function loadDeviceAlerts(id){ try{ state.alerts=await api("GET",`/assets/${id}/alerts`); }catch{ state.alerts=[]; } }
+
+async function authorizeSelected(){
+  const roe=$("#dRoe").value.trim();
+  if(!roe) return toast("Serve il riferimento RoE firmato");
+  const ws=$("#dWinStart").value.trim(), we=$("#dWinEnd").value.trim();
+  const body={status:"active",roe_reference:roe}; if(ws) body.window_start=ws; if(we) body.window_end=we;
+  const res=await apiRaw("POST",`/assets/${state.selId}/authorize`,body);
+  if(!res.ok){ return toast("Errore autorizzazione"+(res.data&&res.data.error?": "+res.data.error:" (finestra in formato HH:MM:SS)")); }
+  await loadDevices(state.activeId); renderDetail(); loadOverview(); toast("Device autorizzato — ora puoi scansionare");
+}
+async function suspendSelected(){
+  if(!confirm("Sospendere l'autorizzazione? Le scansioni saranno rifiutate finché non riautorizzi.")) return;
+  try{ await api("POST",`/assets/${state.selId}/authorize`,{status:"suspended"});
+    await loadDevices(state.activeId); renderDetail(); loadOverview(); toast("Autorizzazione sospesa"); }
   catch(e){ toast("Errore: "+e.message); }
+}
+async function runScan(kind){
+  if(state.scanning||!state.selId) return;
+  state.scanning=true; renderDetail();
+  const res=await apiRaw("POST",`/assets/${state.selId}/scan`,{kind});
+  state.scanning=false;
+  if(res.data&&res.data.scan){
+    state.outcome=res.data; const st=res.data.scan.status;
+    if(st==="refused") toast("Scansione rifiutata dal gate");
+    else if(st==="failed") toast("Scansione fallita (vedi esito)");
+    else toast(`Scansione completata: ${res.data.findings.length} findings`);
+  } else toast("Errore scansione"+(res.status?` (HTTP ${res.status})`:""));
+  await Promise.all([loadFindings(state.selId),loadDeviceAlerts(state.selId),loadDevices(state.activeId)]);
+  renderDetail(); loadOverview();
 }
 async function editDevice(assetId){
   const d=state.devices.find((x)=>x.id===assetId); if(!d) return;
   const value=prompt(`Nuovo indirizzo/host (tipo: ${d.kind}).\nCambiando il target l'autorizzazione torna "in attesa".`, d.value);
   if(value===null) return; if(!value.trim()) return toast("Il valore non può essere vuoto");
   try{ await api("PATCH",`/assets/${assetId}`,{kind:d.kind,value:value.trim()});
-    await loadDevices(state.activeId); toast("Device modificato"); }
+    await loadDevices(state.activeId); if(state.selId===assetId) await selectDevice(assetId); loadOverview(); toast("Device modificato"); }
   catch(e){ toast("Errore: "+e.message); }
 }
 async function removeDevice(assetId){
   const d=state.devices.find((x)=>x.id===assetId);
   if(!confirm(`Rimuovere il device ${d?d.value:""}? Verranno eliminati anche scan, findings e alert collegati.`)) return;
   try{ await api("DELETE",`/assets/${assetId}`);
-    await loadDevices(state.activeId); toast("Device rimosso"); }
+    if(state.selId===assetId) clearSelection();
+    await loadDevices(state.activeId); loadOverview(); toast("Device rimosso"); }
   catch(e){ toast("Errore: "+e.message); }
 }
 
@@ -210,27 +588,108 @@ function renderDevices(){
   $("#devHeading").textContent=active?`Aggiungi device · ${active.name}`:"Aggiungi device";
   $("#devCount").textContent=state.devices.length;
   $("#devRows").innerHTML=state.devices.map((d)=>{
-    const act=d.auth_status==="active";
-    const auth=act?"":`<button class="sm ghost" data-auth="${esc(d.id)}">Autorizza</button>`;
-    return `<tr><td class="mono">${esc(d.value)}</td><td class="muted">${esc(d.kind)}</td>
-      <td><span class="pill ${act?"active":""}">${act?"autorizzato":"in attesa"}</span></td>
-      <td><div class="actions">${auth}<button class="sm ghost" data-edit="${esc(d.id)}">Modifica</button><button class="sm danger" data-del="${esc(d.id)}">Rimuovi</button></div></td></tr>`;
+    const st=d.auth_status;
+    const pill=`<span class="pill ${esc(st)}">${st==="active"?"autorizzato":st==="suspended"?"sospeso":st==="revoked"?"revocato":"in attesa"}</span>`;
+    const sel=d.id===state.selId?"sel":"";
+    return `<tr class="clickable ${sel}" data-open="${esc(d.id)}"><td class="mono">${esc(d.value)}</td><td class="muted">${esc(d.kind)}</td>
+      <td>${pill}</td>
+      <td><div class="actions"><button class="btn sm ghost" data-open="${esc(d.id)}">Apri ›</button><button class="btn sm ghost" data-edit="${esc(d.id)}">Mod.</button><button class="btn sm danger" data-del="${esc(d.id)}">✕</button></div></td></tr>`;
   }).join("");
   $("#devEmpty").hidden=state.devices.length>0||!active;
 }
+function renderDetail(){
+  const d=state.devices.find((x)=>x.id===state.selId);
+  if(!d){ $("#detailCard").hidden=true; return; }
+  $("#detailCard").hidden=false;
+  const st=d.auth_status, active=st==="active";
+  $("#dVal").textContent=d.value; $("#dKind").textContent=d.kind;
+  const sp=$("#dStatus"); sp.className="pill "+esc(st);
+  sp.textContent=active?"autorizzato":st==="suspended"?"sospeso":st==="revoked"?"revocato":"in attesa";
+  $("#dRoeLine").innerHTML=`RoE: <b>${d.roe_reference?esc(d.roe_reference):"—"}</b>`;
+  $("#dAuthSec").hidden=active; $("#dScanSec").hidden=!active;
+  if(!active) $("#dRoe").value=d.roe_reference||"";
+  document.querySelectorAll("#dScanSec [data-scan]").forEach((b)=>{
+    const impl=b.dataset.scan==="external_surface"||b.dataset.scan==="sql_injection";
+    b.disabled=!impl||state.scanning;
+    if(state.scanning&&impl) b.innerHTML='<span class="spinner"></span> scansione…';
+    else if(impl) b.innerHTML="▶ "+SCAN_LABEL[b.dataset.scan];
+  });
+  renderOutcome(); renderFindings(); renderAlerts();
+}
+function renderOutcome(){
+  const box=$("#dOutcome"),body=$("#dOutcomeBody"),o=state.outcome;
+  if(!o||!o.scan){ box.hidden=true; return; } box.hidden=false;
+  const s=o.scan, cls=s.status==="completed"?"ok":s.status==="refused"?"warn":"danger";
+  let html=`<div><b>${esc(SCAN_LABEL[s.kind]||s.kind)}</b> · ${esc(stLabel(s.status))}</div>`;
+  if(s.note) html+=`<div class="note-box ${cls}">${esc(s.note)}</div>`;
+  if(s.status==="completed"){
+    html+=`<div>${o.findings.length} findings rilevati.</div>`;
+    if(o.diff){
+      if(o.diff.first_baseline) html+=`<div class="muted small">Prima scansione: baseline registrata.</div>`;
+      else{ const add=(o.diff.added||[]).map((k)=>`<span class="k add">+ ${esc(k)}</span>`).join("");
+        const rem=(o.diff.removed||[]).map((k)=>`<span class="k rem">− ${esc(k)}</span>`).join("");
+        html+=(add||rem)?`<div>Cambiamenti vs baseline:</div><div class="keys">${add}${rem}</div>`:`<div class="muted small">Nessun cambiamento vs baseline.</div>`; }
+    }
+  }
+  if(o.alert) html+=`<div class="note-box ${o.alert.severity==="critical"||o.alert.severity==="high"?"danger":"warn"}"><b>Alert:</b> ${esc(o.alert.summary)}</div>`;
+  body.innerHTML=html;
+}
+function sevRank(s){return {info:0,low:1,medium:2,high:3,critical:4}[s]??0;}
+function renderFindings(){
+  const rows=$("#dFindRows");
+  $("#dFindCount").textContent=state.findings.length;
+  $("#dFindEmpty").hidden=state.findings.length>0;
+  const sorted=[...state.findings].sort((a,b)=>sevRank(b.severity)-sevRank(a.severity));
+  rows.innerHTML=sorted.map((f,i)=>
+    `<tr class="clickable" data-find="${i}"><td><span class="sev ${esc(f.severity)}">${esc(f.severity)}</span></td>
+      <td class="muted">${esc(f.kind)}</td><td class="mono">${esc(f.key)}</td><td>${esc(f.title)}</td></tr>`+
+    (f.detail?`<tr data-finddet="${i}" hidden><td></td><td colspan="3"><div class="fdetail">${esc(f.detail)}</div></td></tr>`:"")
+  ).join("");
+}
+function renderAlerts(){
+  const list=$("#dAlertList");
+  $("#dAlertCount").textContent=state.alerts.length;
+  $("#dAlertEmpty").hidden=state.alerts.length>0;
+  const sorted=[...state.alerts].sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));
+  list.innerHTML=sorted.map((a)=>
+    `<div class="alert-item"><span class="sev ${esc(a.severity)}">${esc(a.severity)}</span>
+      <div><div>${esc(a.summary)}</div><div class="muted small">${esc(a.detail||"")}</div></div></div>`
+  ).join("");
+}
 
+/* ====================== EVENTS ====================== */
 $("#clientList").addEventListener("click",(e)=>{const b=e.target.closest("[data-id]");if(b)selectClient(b.dataset.id);});
 $("#devRows").addEventListener("click",(e)=>{
-  const a=e.target.closest("[data-auth]"); if(a) return authorize(a.dataset.auth);
-  const ed=e.target.closest("[data-edit]"); if(ed) return editDevice(ed.dataset.edit);
-  const rm=e.target.closest("[data-del]"); if(rm) return removeDevice(rm.dataset.del);
+  const ed=e.target.closest("[data-edit]"); if(ed){ e.stopPropagation(); return editDevice(ed.dataset.edit); }
+  const rm=e.target.closest("[data-del]"); if(rm){ e.stopPropagation(); return removeDevice(rm.dataset.del); }
+  const op=e.target.closest("[data-open]"); if(op) return selectDevice(op.dataset.open);
 });
+$("#dFindRows").addEventListener("click",(e)=>{
+  const tr=e.target.closest("[data-find]"); if(!tr) return;
+  const det=document.querySelector(`#dFindRows [data-finddet="${tr.dataset.find}"]`); if(det) det.hidden=!det.hidden;
+});
+$("#detailCard").addEventListener("click",(e)=>{ const sc=e.target.closest("[data-scan]"); if(sc&&!sc.disabled) return runScan(sc.dataset.scan); });
+$("#dAuthBtn").addEventListener("click",authorizeSelected);
+$("#dSuspendBtn").addEventListener("click",suspendSelected);
 $("#addClientBtn").addEventListener("click",addClient);
 $("#addDeviceBtn").addEventListener("click",addDevice);
 $("#addBulkBtn").addEventListener("click",addBulk);
 $("#tabSingle").addEventListener("click",()=>{$("#tabSingle").classList.add("active");$("#tabBulk").classList.remove("active");$("#paneSingle").hidden=false;$("#paneBulk").hidden=true;});
 $("#tabBulk").addEventListener("click",()=>{$("#tabBulk").classList.add("active");$("#tabSingle").classList.remove("active");$("#paneBulk").hidden=false;$("#paneSingle").hidden=true;});
-loadClients();
+
+// auto refresh
+let autoTimer=null;
+function setAuto(on){ state.auto=on; $("#autoBtn").classList.toggle("on",on); $("#autoBtn").textContent=on?"⟳ Auto":"⏸ Auto";
+  if(autoTimer){clearInterval(autoTimer);autoTimer=null;} if(on) autoTimer=setInterval(loadOverview,15000); }
+$("#autoBtn").addEventListener("click",()=>setAuto(!state.auto));
+
+/* ====================== BOOT ====================== */
+(async function(){
+  await loadOverview();
+  await loadClients();
+  setAuto(true);
+  if(state.clients.length===0) openDrawer(); // first run: guide the user to add devices
+})();
 </script>
 </body>
 </html>
