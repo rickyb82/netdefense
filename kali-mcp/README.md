@@ -31,6 +31,11 @@ the underlying binary.
 | `hydra`          | `hydra`    | Network login brute forcing               |
 | `john`           | `john`     | Password hash cracking                    |
 | `hashcat`        | `hashcat`  | GPU/CPU password hash cracking            |
+| `testssl`        | `testssl.sh` | TLS/SSL config + vuln testing           |
+| `sslscan`        | `sslscan`  | Enumerate SSL/TLS protocols, ciphers, cert |
+| `enum4linux_ng`  | `enum4linux-ng` | SMB/NetBIOS/LDAP enumeration         |
+| `amass`          | `amass`    | Subdomain enumeration (`amass enum`)      |
+| `feroxbuster`    | `feroxbuster` | Fast recursive content discovery       |
 
 Every tool also accepts:
 - `extra_args`: an array of raw CLI flags appended verbatim — the escape hatch

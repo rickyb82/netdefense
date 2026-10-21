@@ -389,6 +389,129 @@ pub fn registry() -> Vec<ToolDef> {
                 Ok(a)
             },
         },
+        // ---------------- TLS / SSL ----------------
+        ToolDef {
+            name: "testssl",
+            bin: "testssl.sh",
+            description: "testssl.sh TLS/SSL configuration and vulnerability tester.",
+            schema: tool_schema(
+                json!({
+                    "target": { "type": "string", "description": "Host, host:port or URL to test." },
+                    "fast": { "type": "boolean", "description": "Faster run (--fast): skip some cipher checks." },
+                    "severity": { "type": "string", "description": "Only findings at/above this level (--severity), e.g. LOW/MEDIUM/HIGH." },
+                    "starttls": { "type": "string", "description": "STARTTLS protocol (--starttls), e.g. smtp, imap, ftp." }
+                }),
+                &["target"],
+            ),
+            build: |v| {
+                let mut a = Vec::new();
+                if b(v, "fast") { a.push("--fast".into()); }
+                if let Some(sev) = s(v, "severity") { push_kv(&mut a, "--severity", &sev); }
+                if let Some(st) = s(v, "starttls") { push_kv(&mut a, "--starttls", &st); }
+                a.extend(extra(v));
+                a.push(req(v, "target")?);
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "sslscan",
+            bin: "sslscan",
+            description: "sslscan: enumerate SSL/TLS protocols, ciphers and certificate of a service.",
+            schema: tool_schema(
+                json!({
+                    "target": { "type": "string", "description": "Host or host:port." },
+                    "show_certificate": { "type": "boolean", "description": "Print the server certificate (--show-certificate)." },
+                    "starttls": { "type": "string", "description": "STARTTLS protocol, e.g. smtp/imap/ftp/pop3 (adds --starttls-<proto>)." }
+                }),
+                &["target"],
+            ),
+            build: |v| {
+                let mut a = Vec::new();
+                if b(v, "show_certificate") { a.push("--show-certificate".into()); }
+                if let Some(st) = s(v, "starttls") { a.push(format!("--starttls-{st}")); }
+                a.extend(extra(v));
+                a.push(req(v, "target")?);
+                Ok(a)
+            },
+        },
+        // ---------------- SMB / AD enumeration ----------------
+        ToolDef {
+            name: "enum4linux_ng",
+            bin: "enum4linux-ng",
+            description: "enum4linux-ng SMB/NetBIOS/LDAP enumeration of Windows/Samba hosts.",
+            schema: tool_schema(
+                json!({
+                    "target": { "type": "string", "description": "Target host or IP." },
+                    "all": { "type": "boolean", "description": "All simple enumeration (-A)." },
+                    "shares": { "type": "boolean", "description": "Enumerate shares (-S)." },
+                    "users": { "type": "boolean", "description": "Enumerate users (-U)." },
+                    "username": { "type": "string", "description": "Username for authenticated enum (-u)." },
+                    "password": { "type": "string", "description": "Password for authenticated enum (-p)." }
+                }),
+                &["target"],
+            ),
+            build: |v| {
+                let mut a = Vec::new();
+                if b(v, "all") { a.push("-A".into()); }
+                if b(v, "shares") { a.push("-S".into()); }
+                if b(v, "users") { a.push("-U".into()); }
+                if let Some(u) = s(v, "username") { push_kv(&mut a, "-u", &u); }
+                if let Some(p) = s(v, "password") { push_kv(&mut a, "-p", &p); }
+                a.extend(extra(v));
+                a.push(req(v, "target")?);
+                Ok(a)
+            },
+        },
+        // ---------------- subdomain / OSINT ----------------
+        ToolDef {
+            name: "amass",
+            bin: "amass",
+            description: "OWASP Amass subdomain enumeration (amass enum).",
+            schema: tool_schema(
+                json!({
+                    "domain": { "type": "string", "description": "Root domain to enumerate." },
+                    "passive": { "type": "boolean", "description": "Passive mode only (-passive)." },
+                    "active": { "type": "boolean", "description": "Active techniques (-active)." },
+                    "brute": { "type": "boolean", "description": "Brute-force subdomains (-brute)." }
+                }),
+                &["domain"],
+            ),
+            build: |v| {
+                let mut a = vec!["enum".to_string()];
+                push_kv(&mut a, "-d", &req(v, "domain")?);
+                if b(v, "passive") { a.push("-passive".into()); }
+                if b(v, "active") { a.push("-active".into()); }
+                if b(v, "brute") { a.push("-brute".into()); }
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        // ---------------- web content discovery ----------------
+        ToolDef {
+            name: "feroxbuster",
+            bin: "feroxbuster",
+            description: "feroxbuster fast recursive content/directory discovery.",
+            schema: tool_schema(
+                json!({
+                    "url": { "type": "string", "description": "Target base URL." },
+                    "wordlist": { "type": "string", "description": "Path to a wordlist (-w)." },
+                    "extensions": { "type": "string", "description": "Comma-separated extensions (-x), e.g. \"php,txt\"." },
+                    "threads": { "type": "integer", "description": "Concurrent threads (-t)." },
+                    "status_codes": { "type": "string", "description": "Status codes to keep (-s), e.g. \"200,301\"." }
+                }),
+                &["url"],
+            ),
+            build: |v| {
+                let mut a = Vec::new();
+                push_kv(&mut a, "-u", &req(v, "url")?);
+                if let Some(wl) = s(v, "wordlist") { push_kv(&mut a, "-w", &wl); }
+                if let Some(e) = s(v, "extensions") { push_kv(&mut a, "-x", &e); }
+                if let Some(t) = n(v, "threads") { push_kv(&mut a, "-t", &t.to_string()); }
+                if let Some(sc) = s(v, "status_codes") { push_kv(&mut a, "-s", &sc); }
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
     ]
 }
 
@@ -416,6 +539,43 @@ mod tests {
         let before = names.len();
         names.dedup();
         assert_eq!(before, names.len(), "duplicate tool name in registry");
+    }
+
+    #[test]
+    fn new_tools_are_registered_and_build() {
+        let names: Vec<_> = registry().iter().map(|t| t.name).collect();
+        for n in [
+            "testssl",
+            "sslscan",
+            "enum4linux_ng",
+            "amass",
+            "feroxbuster",
+        ] {
+            assert!(names.contains(&n), "missing tool {n}");
+        }
+        // amass builds `enum -d <domain>` with the domain after -d
+        let a = build(
+            "amass",
+            json!({ "domain": "acme.example", "passive": true }),
+        )
+        .unwrap();
+        assert_eq!(a[0], "enum");
+        assert_eq!(
+            a.windows(2).find(|w| w[0] == "-d").unwrap()[1],
+            "acme.example"
+        );
+        assert!(a.contains(&"-passive".to_string()));
+        // testssl puts the target last
+        let t = build(
+            "testssl",
+            json!({ "target": "example.com:443", "fast": true }),
+        )
+        .unwrap();
+        assert_eq!(t.last().unwrap(), "example.com:443");
+        assert!(t.contains(&"--fast".to_string()));
+        // feroxbuster needs a url
+        assert!(build("feroxbuster", json!({})).is_err());
+        assert!(build("feroxbuster", json!({ "url": "http://x/" })).is_ok());
     }
 
     #[test]
