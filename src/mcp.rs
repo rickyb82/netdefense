@@ -283,7 +283,7 @@ async fn nd_scan(store: &Store, a: &Value) -> Result<String, String> {
     let asset_id = guuid(a, "asset_id")?;
     let kind = ScanKind::from_db(&greq(a, "kind")?)
         .ok_or("kind must be external_surface|sql_injection|vuln|availability|web_hygiene")?;
-    let outcome = crate::scan::run_scan(store, asset_id, kind)
+    let outcome = crate::scan::run_scan(store, asset_id, kind, false)
         .await
         .map_err(|e| e.to_string())?;
     as_json(&outcome)

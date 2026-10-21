@@ -44,7 +44,12 @@ const DEFAULT_SCAN_TIMEOUT: u64 = 300;
 /// Run a scan of `asset_id`. Loads the asset, applies the authorisation gate,
 /// and either records a `Refused` scan or runs the scanner, stores findings,
 /// and diffs against the previous baseline.
-pub async fn run_scan(store: &Store, asset_id: Id, kind: ScanKind) -> Result<ScanOutcome> {
+pub async fn run_scan(
+    store: &Store,
+    asset_id: Id,
+    kind: ScanKind,
+    deep: bool,
+) -> Result<ScanOutcome> {
     let asset = store
         .get_asset(asset_id)?
         .ok_or_else(|| anyhow::anyhow!("asset {asset_id} not found"))?;
@@ -90,7 +95,7 @@ pub async fn run_scan(store: &Store, asset_id: Id, kind: ScanKind) -> Result<Sca
     // --- dispatch to the scanner ---
     let drafts = match kind {
         ScanKind::ExternalSurface => {
-            external::scan(store, asset_id, &target.value, DEFAULT_SCAN_TIMEOUT).await
+            external::scan(store, asset_id, &target.value, DEFAULT_SCAN_TIMEOUT, deep).await
         }
         ScanKind::SqlInjection => crate::sqli::scan(&target.value, DEFAULT_SCAN_TIMEOUT).await,
         ScanKind::Availability => {
@@ -194,7 +199,7 @@ pub async fn run_deep_scan(store: &Store, asset_id: Id) -> Result<Vec<ScanOutcom
         .ok_or_else(|| anyhow::anyhow!("asset {asset_id} not found"))?;
     let mut out = Vec::new();
     for k in kinds_for(asset.kind) {
-        out.push(run_scan(store, asset_id, k).await?);
+        out.push(run_scan(store, asset_id, k, true).await?);
     }
     Ok(out)
 }

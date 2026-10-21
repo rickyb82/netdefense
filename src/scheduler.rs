@@ -31,7 +31,7 @@ pub fn spawn(store: Store, tick: Duration) -> JoinHandle<()> {
 pub async fn tick_once(store: &Store) -> Result<()> {
     let now = Utc::now();
     for sched in store.list_due_schedules(now)? {
-        match scan::run_scan(store, sched.asset_id, sched.kind).await {
+        match scan::run_scan(store, sched.asset_id, sched.kind, false).await {
             Ok(outcome) => {
                 if outcome.alert.is_some() {
                     eprintln!(

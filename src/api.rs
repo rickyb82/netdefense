@@ -320,7 +320,7 @@ async fn trigger_scan(
     if store.get_asset(id)?.is_none() {
         return Ok(not_found("asset"));
     }
-    let outcome = scan::run_scan(&store, id, body.kind).await?;
+    let outcome = scan::run_scan(&store, id, body.kind, false).await?;
     // A gate refusal is a legitimate, recorded outcome — surface it as 403.
     let code = match outcome.scan.status {
         ScanStatus::Refused => StatusCode::FORBIDDEN,
@@ -382,7 +382,7 @@ async fn scan_all(State(store): State<Store>, Json(b): Json<ScanAll>) -> ApiResu
         let outcomes = if b.deep {
             scan::run_deep_scan(&store, a.id).await.unwrap_or_default()
         } else {
-            match scan::run_scan(&store, a.id, b.kind).await {
+            match scan::run_scan(&store, a.id, b.kind, false).await {
                 Ok(o) => vec![o],
                 Err(_) => {
                     failed += 1;

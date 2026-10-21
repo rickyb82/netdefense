@@ -36,29 +36,58 @@ pub async fn scan(
     asset_id: Id,
     target: &str,
     timeout_secs: u64,
+    deep: bool,
 ) -> Result<Vec<FindingDraft>> {
-    let args: Vec<String> = [
-        "-Pn",
-        "-T4",
-        "-sV",
-        "--version-light",
-        "-p",
-        FLEET_PORTS,
-        "--open",
-        "-oG",
-        "-",
-        target,
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
+    // Quick: the curated fleet/management/VoIP ports with a light version probe
+    // (fast). Deep: every TCP port (-p-) with full service/version detection, so
+    // nothing is missed and each open port is identified — what the deep scan
+    // is for. nmap self-limits with --host-timeout and the runner kill backs it.
+    let (args, to): (Vec<String>, u64) = if deep {
+        (
+            vec![
+                "-Pn",
+                "-T4",
+                "-sV",
+                "-p-",
+                "--open",
+                "--host-timeout",
+                "850s",
+                "-oG",
+                "-",
+                target,
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+            timeout_secs.max(900),
+        )
+    } else {
+        (
+            vec![
+                "-Pn",
+                "-T4",
+                "-sV",
+                "--version-light",
+                "-p",
+                FLEET_PORTS,
+                "--open",
+                "-oG",
+                "-",
+                target,
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+            timeout_secs,
+        )
+    };
 
-    let out = runner::run("nmap", &args, timeout_secs).await;
+    let out = runner::run("nmap", &args, to).await;
     if out.not_found {
         return Err(anyhow!("nmap is not installed on the scanner host"));
     }
     if out.timed_out {
-        return Err(anyhow!("nmap timed out after {timeout_secs}s"));
+        return Err(anyhow!("nmap timed out after {to}s"));
     }
     if out.stdout.trim().is_empty() && !out.stderr.trim().is_empty() {
         return Err(anyhow!("nmap failed: {}", out.stderr.trim()));

@@ -77,7 +77,9 @@ fn version_after(s: &str, marker: &str) -> Option<String> {
     let tail = s[i + marker.len()..].trim_start();
     let word: String = tail.chars().take_while(|c| !c.is_whitespace()).collect();
     let trimmed = word.trim_matches(|c: char| !c.is_ascii_alphanumeric());
-    if trimmed.is_empty() {
+    // A version starts with a digit — reject words like "sshd"/"ftpd" that can
+    // follow the marker in a service banner (e.g. "MikroTik RouterOS sshd").
+    if trimmed.is_empty() || !trimmed.starts_with(|c: char| c.is_ascii_digit()) {
         None
     } else {
         Some(trimmed.to_string())
@@ -188,5 +190,16 @@ mod tests {
         let id = classify("RouterOS 6.49.7", Some("1.3.6.1.4.1.8072.3.2.10")).unwrap();
         assert_eq!(id.product, "routeros");
         assert_eq!(id.version.as_deref(), Some("6.49.7"));
+    }
+
+    #[test]
+    fn ssh_banner_word_is_not_a_version() {
+        // "MikroTik RouterOS sshd" must not yield version "sshd".
+        let id = classify("MikroTik RouterOS sshd", None).unwrap();
+        assert_eq!(id.product, "routeros");
+        assert_eq!(id.version, None);
+        // The FTP banner carries the real dotted version.
+        let id2 = classify("MikroTik router ftpd 6.49.3", None).unwrap();
+        assert_eq!(id2.version.as_deref(), Some("6.49.3"));
     }
 }
