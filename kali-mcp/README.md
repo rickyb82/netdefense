@@ -46,6 +46,14 @@ the underlying binary.
 | `dnsx`           | `dnsx`     | Fast DNS resolution/queries               |
 | `dalfox`         | `dalfox`   | XSS scanner                               |
 | `arjun`          | `arjun`    | Hidden HTTP parameter discovery           |
+| `katana`         | `katana`   | Web crawler / endpoint discovery          |
+| `gau`            | `gau`      | Known-URL harvesting from web archives    |
+| `gowitness`      | `gowitness`| Screenshot a web page                     |
+| `wafw00f`        | `wafw00f`  | WAF detection/fingerprint                 |
+| `tlsx`           | `tlsx`     | TLS certificate data (SAN/CN/expiry)      |
+| `netexec`        | `nxc`      | SMB/WinRM/LDAP/SSH enum + cred testing    |
+| `smbmap`         | `smbmap`   | SMB share enumeration                     |
+| `joomscan`       | `joomscan` | Joomla CMS vulnerability scanner          |
 
 Every tool also accepts:
 - `extra_args`: an array of raw CLI flags appended verbatim — the escape hatch

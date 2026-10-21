@@ -737,6 +737,170 @@ pub fn registry() -> Vec<ToolDef> {
                 Ok(a)
             },
         },
+        // ---------------- crawling / URL harvesting ----------------
+        ToolDef {
+            name: "katana",
+            bin: "katana",
+            description: "Katana web crawler: discover endpoints/URLs on a site.",
+            schema: tool_schema(
+                json!({
+                    "url": { "type": "string", "description": "Target URL (-u)." },
+                    "depth": { "type": "integer", "description": "Crawl depth (-d)." },
+                    "js_crawl": { "type": "boolean", "description": "Parse JS for endpoints (-jc)." }
+                }),
+                &["url"],
+            ),
+            build: |v| {
+                let mut a = Vec::new();
+                push_kv(&mut a, "-u", &req(v, "url")?);
+                if let Some(d) = n(v, "depth") { push_kv(&mut a, "-d", &d.to_string()); }
+                if b(v, "js_crawl") { a.push("-jc".into()); }
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "gau",
+            bin: "gau",
+            description: "getallurls (gau): fetch known URLs for a domain from web archives.",
+            schema: tool_schema(
+                json!({
+                    "domain": { "type": "string", "description": "Domain to collect URLs for." },
+                    "subs": { "type": "boolean", "description": "Include subdomains (--subs)." }
+                }),
+                &["domain"],
+            ),
+            build: |v| {
+                let mut a = Vec::new();
+                if b(v, "subs") { a.push("--subs".into()); }
+                a.extend(extra(v));
+                a.push(req(v, "domain")?);
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "gowitness",
+            bin: "gowitness",
+            description: "gowitness: screenshot a web page (single URL). For v3 CLI differences use extra_args.",
+            schema: tool_schema(
+                json!({
+                    "url": { "type": "string", "description": "URL to screenshot." }
+                }),
+                &["url"],
+            ),
+            build: |v| {
+                let mut a = vec!["single".to_string()];
+                a.push(req(v, "url")?);
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        // ---------------- WAF / TLS ----------------
+        ToolDef {
+            name: "wafw00f",
+            bin: "wafw00f",
+            description: "wafw00f: detect and fingerprint the WAF in front of a site.",
+            schema: tool_schema(
+                json!({
+                    "target": { "type": "string", "description": "URL to test." },
+                    "find_all": { "type": "boolean", "description": "Find all matching WAFs (-a)." }
+                }),
+                &["target"],
+            ),
+            build: |v| {
+                let mut a = Vec::new();
+                if b(v, "find_all") { a.push("-a".into()); }
+                a.extend(extra(v));
+                a.push(req(v, "target")?);
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "tlsx",
+            bin: "tlsx",
+            description: "tlsx: grab TLS certificate data (SAN/CN, expiry) from hosts.",
+            schema: tool_schema(
+                json!({
+                    "target": { "type": "string", "description": "Host or host:port (-u)." },
+                    "san": { "type": "boolean", "description": "Show SANs (-san)." },
+                    "cn": { "type": "boolean", "description": "Show common name (-cn)." },
+                    "expired": { "type": "boolean", "description": "Flag expired certs (-ex)." }
+                }),
+                &["target"],
+            ),
+            build: |v| {
+                let mut a = Vec::new();
+                push_kv(&mut a, "-u", &req(v, "target")?);
+                if b(v, "san") { a.push("-san".into()); }
+                if b(v, "cn") { a.push("-cn".into()); }
+                if b(v, "expired") { a.push("-ex".into()); }
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        // ---------------- SMB / Active Directory ----------------
+        ToolDef {
+            name: "netexec",
+            bin: "nxc",
+            description: "NetExec (nxc): enumerate / test credentials over SMB, WinRM, LDAP, SSH, …",
+            schema: tool_schema(
+                json!({
+                    "protocol": { "type": "string", "description": "Protocol: smb, winrm, ldap, ssh, ftp, mssql, …" },
+                    "target": { "type": "string", "description": "Target host, range or CIDR." },
+                    "username": { "type": "string", "description": "Username (-u)." },
+                    "password": { "type": "string", "description": "Password (-p)." }
+                }),
+                &["protocol", "target"],
+            ),
+            build: |v| {
+                let mut a = Vec::new();
+                a.push(req(v, "protocol")?);
+                a.push(req(v, "target")?);
+                if let Some(u) = s(v, "username") { push_kv(&mut a, "-u", &u); }
+                if let Some(p) = s(v, "password") { push_kv(&mut a, "-p", &p); }
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "smbmap",
+            bin: "smbmap",
+            description: "smbmap: enumerate SMB shares and access on a host.",
+            schema: tool_schema(
+                json!({
+                    "target": { "type": "string", "description": "Target host (-H)." },
+                    "username": { "type": "string", "description": "Username (-u)." },
+                    "password": { "type": "string", "description": "Password (-p)." }
+                }),
+                &["target"],
+            ),
+            build: |v| {
+                let mut a = Vec::new();
+                push_kv(&mut a, "-H", &req(v, "target")?);
+                if let Some(u) = s(v, "username") { push_kv(&mut a, "-u", &u); }
+                if let Some(p) = s(v, "password") { push_kv(&mut a, "-p", &p); }
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        // ---------------- CMS ----------------
+        ToolDef {
+            name: "joomscan",
+            bin: "joomscan",
+            description: "JoomScan: Joomla CMS vulnerability scanner.",
+            schema: tool_schema(
+                json!({
+                    "url": { "type": "string", "description": "Target Joomla URL (--url)." }
+                }),
+                &["url"],
+            ),
+            build: |v| {
+                let mut a = Vec::new();
+                push_kv(&mut a, "--url", &req(v, "url")?);
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
     ]
 }
 
@@ -852,6 +1016,45 @@ mod tests {
         // required fields enforced
         assert!(build("nuclei", json!({})).is_err());
         assert!(build("subfinder", json!({})).is_err());
+    }
+
+    #[test]
+    fn extra_batch_registered_and_builds() {
+        let names: Vec<_> = registry().iter().map(|t| t.name).collect();
+        for n in [
+            "katana",
+            "gau",
+            "gowitness",
+            "wafw00f",
+            "tlsx",
+            "netexec",
+            "smbmap",
+            "joomscan",
+        ] {
+            assert!(names.contains(&n), "missing tool {n}");
+        }
+        // netexec: `<protocol> <target> -u ...`
+        let nx = build(
+            "netexec",
+            json!({ "protocol": "smb", "target": "10.0.0.1", "username": "a" }),
+        )
+        .unwrap();
+        assert_eq!(nx[0], "smb");
+        assert_eq!(nx[1], "10.0.0.1");
+        assert_eq!(nx.windows(2).find(|w| w[0] == "-u").unwrap()[1], "a");
+        // wafw00f target is positional/last
+        let w = build(
+            "wafw00f",
+            json!({ "target": "https://x", "find_all": true }),
+        )
+        .unwrap();
+        assert_eq!(w.last().unwrap(), "https://x");
+        assert!(w.contains(&"-a".to_string()));
+        // gowitness: `single <url>`
+        let g = build("gowitness", json!({ "url": "https://x" })).unwrap();
+        assert_eq!(g[0], "single");
+        assert_eq!(g[1], "https://x");
+        assert!(build("katana", json!({})).is_err());
     }
 
     #[test]
