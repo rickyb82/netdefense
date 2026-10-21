@@ -138,6 +138,19 @@
     border-right:1px solid var(--line);z-index:60;transform:translateX(-102%);transition:transform .24s ease;
     overflow-y:auto;box-shadow:12px 0 40px rgba(0,0,0,.45);}
   .drawer.open{transform:translateX(0);}
+  .drawer.right{left:auto;right:0;transform:translateX(102%);border-right:0;border-left:1px solid var(--line);box-shadow:-12px 0 40px rgba(0,0,0,.45);display:flex;flex-direction:column;}
+  .drawer.right.open{transform:translateX(0);}
+  .chat-status{padding:8px 16px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--line);font-family:var(--mono);}
+  .chat-status b{color:var(--ink);} .chat-status.ok b{color:var(--ok);} .chat-status.err b{color:var(--danger);}
+  .chat-msgs{flex:1 1 auto;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px;}
+  .bubble{max-width:90%;padding:9px 12px;border-radius:12px;font-size:13.5px;line-height:1.5;white-space:pre-wrap;word-wrap:break-word;}
+  .bubble.user{align-self:flex-end;background:var(--accent);color:#04201f;border-bottom-right-radius:4px;}
+  .bubble.assistant{align-self:flex-start;background:var(--panel-2);border:1px solid var(--line);border-bottom-left-radius:4px;}
+  .bubble.tools{align-self:flex-start;font-family:var(--mono);font-size:11px;color:var(--muted);background:transparent;border:1px dashed var(--line);padding:6px 10px;}
+  .bubble.tools .ok{color:var(--ok);} .bubble.tools .no{color:var(--danger);}
+  .chat-input{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--line);background:var(--bg-2);}
+  .chat-input input{flex:1 1 auto;}
+  .chat-empty{color:var(--muted);font-size:13px;text-align:center;padding:22px 8px;}
   @media (prefers-reduced-motion:reduce){.drawer,.overlay{transition:none;}}
   .drawer-head{position:sticky;top:0;background:var(--bg-2);border-bottom:1px solid var(--line);
     padding:13px 16px;display:flex;align-items:center;gap:10px;z-index:2;}
@@ -200,6 +213,7 @@
     <div><h1>NetDefense · SOC</h1><div class="sub">Security Operations Center</div></div>
   </div>
   <div class="grow"></div>
+  <button class="iconbtn" id="chatBtn" title="Assistente LLM locale (LM Studio)">🤖 Assistant</button>
   <button class="iconbtn on" id="autoBtn" title="Aggiornamento automatico">⟳ Auto</button>
   <span class="chip" id="connChip"><span class="dot"></span><span id="connText">…</span></span>
 </header>
@@ -303,6 +317,22 @@
       </div>
     </div>
   </div>
+</aside>
+
+<!-- chat assistant drawer (right) -->
+<div class="overlay" id="chatOverlay"></div>
+<aside class="drawer right" id="chatPanel" aria-label="Assistant" aria-hidden="true">
+  <div class="drawer-head">
+    <h2>🤖 Assistant</h2>
+    <div class="grow"></div>
+    <button class="iconbtn" id="chatClose" aria-label="Chiudi">✕</button>
+  </div>
+  <div class="chat-status" id="chatStatus">verifica LM Studio…</div>
+  <div class="chat-msgs" id="chatMsgs"><div class="chat-empty">Chiedi all'assistente di operare sulla piattaforma: può usare i tool MCP (clienti, device, autorizzazioni, scansioni, CVE e i tool Kali). Es.: «aggiungi il cliente ACME e un device host 203.0.113.9», «scansiona in profondità l'ultimo device».</div></div>
+  <form class="chat-input" id="chatForm">
+    <input id="chatText" placeholder="Scrivi un messaggio…" autocomplete="off" />
+    <button class="btn" type="submit" id="chatSendBtn">Invia</button>
+  </form>
 </aside>
 
 <!-- SOC dashboard stage -->
@@ -547,7 +577,7 @@ function toggleDrawer(){ $("#drawer").classList.contains("open")?closeDrawer():o
 $("#menuBtn").addEventListener("click",toggleDrawer);
 $("#closeDrawer").addEventListener("click",closeDrawer);
 $("#overlay").addEventListener("click",closeDrawer);
-document.addEventListener("keydown",(e)=>{ if(e.key==="Escape") closeDrawer(); });
+document.addEventListener("keydown",(e)=>{ if(e.key==="Escape"){ closeDrawer(); closeChat(); } });
 
 async function openAsset(assetId){
   try{
@@ -792,6 +822,54 @@ let autoTimer=null;
 function setAuto(on){ state.auto=on; $("#autoBtn").classList.toggle("on",on); $("#autoBtn").textContent=on?"⟳ Auto":"⏸ Auto";
   if(autoTimer){clearInterval(autoTimer);autoTimer=null;} if(on) autoTimer=setInterval(loadOverview,15000); }
 $("#autoBtn").addEventListener("click",()=>setAuto(!state.auto));
+
+/* ====================== CHAT ASSISTANT ====================== */
+const chat={msgs:[],busy:false,loaded:false};
+function openChat(){ $("#chatPanel").classList.add("open"); $("#chatPanel").setAttribute("aria-hidden","false"); $("#chatOverlay").classList.add("show"); if(!chat.loaded){ loadChatStatus(); chat.loaded=true; } setTimeout(()=>{try{$("#chatText").focus();}catch{}},60); }
+function closeChat(){ const p=$("#chatPanel"); if(!p) return; p.classList.remove("open"); p.setAttribute("aria-hidden","true"); $("#chatOverlay").classList.remove("show"); }
+$("#chatBtn").addEventListener("click",()=>$("#chatPanel").classList.contains("open")?closeChat():openChat());
+$("#chatClose").addEventListener("click",closeChat);
+$("#chatOverlay").addEventListener("click",closeChat);
+
+async function loadChatStatus(){
+  const el=$("#chatStatus");
+  try{ const s=await api("GET","/chat/status");
+    if(s.ok){ const m=(s.models&&s.models.length)?s.models[0]:(s.model||"modello caricato");
+      el.className="chat-status ok"; el.innerHTML=`LM Studio: <b>connesso</b> · ${esc(s.url)} · modello <b>${esc(m)}</b>`; }
+    else { el.className="chat-status err"; el.innerHTML=`LM Studio: <b>non raggiungibile</b> · ${esc(s.url||"")} — avvia LM Studio e il suo server locale (porta 1234).`; }
+  }catch{ el.className="chat-status err"; el.textContent="Stato LM Studio non disponibile."; }
+}
+function renderChat(){
+  const box=$("#chatMsgs");
+  if(!chat.msgs.length) return;
+  box.innerHTML=chat.msgs.map((m)=> m.role==="tools"
+    ? `<div class="bubble tools">🔧 ${m.content}</div>`
+    : `<div class="bubble ${m.role==="user"?"user":"assistant"}">${esc(m.content)}</div>`
+  ).join("");
+  box.scrollTop=box.scrollHeight;
+}
+$("#chatForm").addEventListener("submit",async (e)=>{
+  e.preventDefault();
+  const t=$("#chatText").value.trim(); if(!t||chat.busy) return;
+  $("#chatText").value="";
+  chat.msgs.push({role:"user",content:t});
+  chat.msgs.push({role:"assistant",content:"…"}); renderChat();
+  chat.busy=true; $("#chatSendBtn").disabled=true;
+  const convo=chat.msgs.filter((m)=>m.role==="user"||(m.role==="assistant"&&m.content!=="…")).map((m)=>({role:m.role,content:m.content}));
+  const res=await apiRaw("POST","/chat",{messages:convo});
+  chat.msgs.pop();
+  if(res.data&&typeof res.data.reply==="string"){
+    if(res.data.tool_log&&res.data.tool_log.length){
+      const names=res.data.tool_log.map((x)=>`<span class="${x.ok?"ok":"no"}">${esc(x.tool)}</span>`).join(", ");
+      chat.msgs.push({role:"tools",content:"tool usati: "+names});
+      refreshAll();
+    }
+    chat.msgs.push({role:"assistant",content:res.data.reply||"(nessuna risposta)"});
+  } else {
+    chat.msgs.push({role:"assistant",content:"Errore: "+((res.data&&res.data.error)||("HTTP "+res.status))+". Controlla che LM Studio sia avviato sulla porta 1234."});
+  }
+  chat.busy=false; $("#chatSendBtn").disabled=false; renderChat();
+});
 
 /* ====================== BOOT ====================== */
 (async function(){

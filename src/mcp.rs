@@ -107,7 +107,7 @@ async fn handle_line(line: &str, store: Store, out: SharedOut) {
 }
 
 /// Native netdefense tools + the connected kali-mcp catalogue.
-fn tool_list() -> Vec<Value> {
+pub fn tool_list() -> Vec<Value> {
     let mut list = native_tools();
     for t in kali_mcp::tools::registry() {
         list.push(json!({ "name": t.name, "description": t.description, "inputSchema": t.schema }));
@@ -148,22 +148,29 @@ async fn call_tool(store: &Store, params: &Value) -> Value {
         .get("arguments")
         .cloned()
         .unwrap_or_else(|| json!({}));
+    let (text, is_err) = exec_tool(store, name, &args).await;
+    json!({ "content": [{ "type": "text", "text": text }], "isError": is_err })
+}
 
-    if let Some(res) = call_native(store, name, &args).await {
+/// Execute one tool — a native `nd_*` operation or a kali tool — and return its
+/// output text and whether it errored. Shared by the MCP server and the in-app
+/// chat agent, so both reach the tools through exactly the same code path (and
+/// native scans still pass the authorisation gate).
+pub async fn exec_tool(store: &Store, name: &str, args: &Value) -> (String, bool) {
+    if let Some(res) = call_native(store, name, args).await {
         return match res {
-            Ok(text) => ok_text(text),
-            Err(e) => tool_error(&e),
+            Ok(text) => (text, false),
+            Err(e) => (e, true),
         };
     }
-
     // Not a native tool → delegate to the connected kali-mcp catalogue.
     let reg = kali_mcp::tools::registry();
     let Some(def) = reg.iter().find(|t| t.name == name) else {
-        return tool_error(&format!("unknown tool `{name}`"));
+        return (format!("unknown tool `{name}`"), true);
     };
-    let cli = match (def.build)(&args) {
+    let cli = match (def.build)(args) {
         Ok(a) => a,
-        Err(e) => return tool_error(&format!("invalid arguments for `{name}`: {e}")),
+        Err(e) => return (format!("invalid arguments for `{name}`: {e}"), true),
     };
     let timeout = args
         .get("timeout_secs")
@@ -171,7 +178,16 @@ async fn call_tool(store: &Store, params: &Value) -> Value {
         .filter(|n| *n > 0)
         .unwrap_or(DEFAULT_TIMEOUT);
     let o = kali_mcp::runner::run(def.bin, &cli, timeout).await;
-    format_kali(def.bin, &cli, &o)
+    let v = format_kali(def.bin, &cli, &o);
+    let text = v
+        .get("content")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("text"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let is_err = v.get("isError").and_then(Value::as_bool).unwrap_or(false);
+    (text, is_err)
 }
 
 async fn call_native(store: &Store, name: &str, args: &Value) -> Option<Result<String, String>> {
@@ -291,9 +307,6 @@ async fn nd_scan(store: &Store, a: &Value) -> Result<String, String> {
 
 // ---- result helpers ----
 
-fn ok_text(text: String) -> Value {
-    json!({ "content": [{ "type": "text", "text": text }], "isError": false })
-}
 fn tool_error(msg: &str) -> Value {
     json!({ "content": [{ "type": "text", "text": msg }], "isError": true })
 }

@@ -23,6 +23,8 @@ pub fn router(store: Store) -> Router {
         .route("/", get(index_ui))
         .route("/health", get(|| async { "ok" }))
         .route("/overview", get(overview))
+        .route("/chat", post(chat_send))
+        .route("/chat/status", get(chat_status))
         .route("/clients", post(create_client).get(list_clients))
         .route("/clients/:id/assets", post(add_asset).get(list_assets))
         .route("/clients/:id/assets/bulk", post(bulk_add_assets))
@@ -93,6 +95,28 @@ type ApiResult = Result<Response, ApiError>;
 
 async fn index_ui() -> axum::response::Html<&'static str> {
     axum::response::Html(crate::ui::INDEX)
+}
+
+// ---- chat assistant (local LLM via LM Studio) ----
+
+async fn chat_send(
+    State(store): State<Store>,
+    Json(req): Json<crate::chat::ChatRequest>,
+) -> ApiResult {
+    let cfg = crate::chat::ChatConfig::from_env();
+    match crate::chat::run(&store, &cfg, req).await {
+        Ok(reply) => Ok(Json(reply).into_response()),
+        Err(e) => Ok((
+            StatusCode::BAD_GATEWAY,
+            Json(json!({ "error": e.to_string() })),
+        )
+            .into_response()),
+    }
+}
+
+async fn chat_status() -> ApiResult {
+    let cfg = crate::chat::ChatConfig::from_env();
+    Ok(Json(crate::chat::status(&cfg).await).into_response())
 }
 
 /// One aggregate payload that populates the whole SOC dashboard: rollup counts

@@ -15,6 +15,13 @@ services:
     # SQLite DB persists across restarts/rebuilds.
     volumes:
       - nd-data:/data
+    # Reach LM Studio running on the Mac host (its OpenAI-compatible server on
+    # :1234). From inside the container "localhost" is the container, so the
+    # in-app chat assistant talks to the host via host.docker.internal.
+    environment:
+      - NETDEFENSE_LLM_URL=http://host.docker.internal:1234/v1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     # On Apple Silicon this runs native arm64. If a Kali tool is missing for
     # arm64, uncomment to run the amd64 image under emulation instead:

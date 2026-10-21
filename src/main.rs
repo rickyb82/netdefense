@@ -7,6 +7,7 @@
 mod alert;
 mod api;
 mod authz;
+mod chat;
 mod cve;
 mod disclosure;
 mod domain;
