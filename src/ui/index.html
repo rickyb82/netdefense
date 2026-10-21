@@ -263,7 +263,7 @@
 
     <div class="card">
       <div class="hdr-row"><h3 style="margin:0">Device del cliente</h3><span class="count-badge" id="devCount">0</span></div>
-      <div class="muted small" style="margin:-6px 0 10px">Clicca un device per autorizzarlo, scansionarlo e vederne i risultati.</div>
+      <div class="muted small" style="margin:-6px 0 10px">Clicca un device per aprirlo: è scansionabile subito. Lancia la scansione e vedi i risultati.</div>
       <div class="table-scroll"><table>
         <thead><tr><th>Device</th><th>Tipo</th><th>Stato</th><th>Azioni</th></tr></thead>
         <tbody id="devRows"></tbody>
@@ -280,14 +280,9 @@
       <div class="kv" id="dRoeLine"></div>
       <div class="seg">
         <div id="dAuthSec">
-          <h3>1 · Autorizza la scansione</h3>
-          <div class="note-box warn" style="margin-bottom:10px">Device <b>non autorizzato</b>. Serve il riferimento a una Rules-of-Engagement / contratto firmato: senza, il gate rifiuta.</div>
-          <div class="field"><label for="dRoe">Riferimento RoE firmato *</label><input id="dRoe" placeholder="RoE-2026-ACME-001" /></div>
-          <div class="row">
-            <div class="field"><label for="dWinStart">Finestra inizio (UTC, opz.)</label><input id="dWinStart" placeholder="02:00:00" /></div>
-            <div class="field"><label for="dWinEnd">Finestra fine (UTC, opz.)</label><input id="dWinEnd" placeholder="06:00:00" /></div>
-          </div>
-          <button class="btn" id="dAuthBtn">Autorizza per la scansione</button>
+          <h3>Scansione disattivata</h3>
+          <div class="note-box warn" style="margin-bottom:10px">Questo device è <b>sospeso/revocato</b> ed è escluso dalle scansioni. Riattivalo per poterlo scansionare.</div>
+          <button class="btn" id="dAuthBtn">Riattiva device</button>
         </div>
         <div id="dScanSec">
           <h3>Lancia una scansione</h3>
@@ -300,7 +295,7 @@
           </div>
           <button class="btn" id="dDeepBtn" style="margin-top:10px">▶▶ Scansione profonda (tutti i controlli adatti)</button>
           <div class="muted small" style="margin-top:6px"><b>Superficie esterna</b>: nmap con rilevamento versione → su MikroTik &amp; co. identifica RouterOS/versione, porte Winbox/API e correla le CVE. <b>Igiene web</b>: header, mixed-content (CSS/JS http), rileva CMS (WordPress/Joomla/Drupal) e fa crawl delle pagine lanciando SQLi su quelle con parametri. <b>Vulnerabilità</b>: CVE sui fact del device. <b>Profonda</b>: tutti i controlli adatti al tipo di asset, in sequenza.</div>
-          <button class="btn sm danger" id="dSuspendBtn" style="margin-top:10px">Sospendi autorizzazione</button>
+          <button class="btn sm danger" id="dSuspendBtn" style="margin-top:10px">Sospendi (escludi dalle scansioni)</button>
         </div>
         <div id="dOutcome" hidden>
           <h3>Esito ultima scansione</h3>
@@ -361,7 +356,7 @@
     <span class="u" id="updated">—</span>
   </div>
   <div class="toolbar">
-    <span class="muted small">Scansione sugli asset autorizzati:</span>
+    <span class="muted small">Scansione sugli asset attivi:</span>
     <select id="bulkKind" aria-label="Tipo di scansione rapida">
       <option value="external_surface">Superficie esterna</option>
       <option value="availability">Disponibilità</option>
@@ -377,7 +372,7 @@
   <div id="startBanner" hidden></div>
   <div class="kpis" id="kpis"></div>
   <div class="panels prow3" style="margin-bottom:14px">
-    <div class="panel"><div class="ph"><h3 style="margin:0">Stato autorizzazioni</h3></div><div id="pAuth"></div></div>
+    <div class="panel"><div class="ph"><h3 style="margin:0">Stato device</h3></div><div id="pAuth"></div></div>
     <div class="panel"><div class="ph"><h3 style="margin:0">Alert per severità</h3><span class="cnt" id="pAlertSevCnt"></span></div><div id="pAlertSev"></div></div>
     <div class="panel"><div class="ph"><h3 style="margin:0">Findings per severità</h3><span class="cnt" id="pFindSevCnt"></span></div><div id="pFindSev"></div></div>
   </div>
@@ -441,7 +436,7 @@ function renderDashboard(d){
   if((c.assets||0)===0){
     bn.hidden=false;
     bn.className="startbanner";
-    bn.innerHTML=`<div><b>Nessun device monitorato.</b><div class="muted small" style="margin-top:3px">Apri il Gestionale, aggiungi un cliente e un device, autorizzalo e lancia la prima scansione.</div></div><button class="btn" id="bnOpen">Apri il Gestionale ›</button>`;
+    bn.innerHTML=`<div><b>Nessun device monitorato.</b><div class="muted small" style="margin-top:3px">Apri il Gestionale, aggiungi un cliente e un device, poi lancia la prima scansione.</div></div><button class="btn" id="bnOpen">Apri il Gestionale ›</button>`;
     $("#bnOpen").addEventListener("click",openDrawer);
   } else bn.hidden=true;
 
@@ -456,7 +451,7 @@ function renderDashboard(d){
 
   // donut auth
   $("#pAuth").innerHTML=donut([
-    {label:"autorizzati",value:active,cls:"st-active"},
+    {label:"attivi",value:active,cls:"st-active"},
     {label:"in attesa",value:pending,cls:"st-pending"},
     {label:"sospesi",value:num(abs,"suspended"),cls:"st-suspended"},
     {label:"revocati",value:num(abs,"revoked"),cls:"st-revoked"},
@@ -661,18 +656,14 @@ async function loadFindings(id){ try{ state.findings=await api("GET",`/assets/${
 async function loadDeviceAlerts(id){ try{ state.alerts=await api("GET",`/assets/${id}/alerts`); }catch{ state.alerts=[]; } }
 
 async function authorizeSelected(){
-  const roe=$("#dRoe").value.trim();
-  if(!roe) return toast("Serve il riferimento RoE firmato");
-  const ws=$("#dWinStart").value.trim(), we=$("#dWinEnd").value.trim();
-  const body={status:"active",roe_reference:roe}; if(ws) body.window_start=ws; if(we) body.window_end=we;
-  const res=await apiRaw("POST",`/assets/${state.selId}/authorize`,body);
-  if(!res.ok){ return toast("Errore autorizzazione"+(res.data&&res.data.error?": "+res.data.error:" (finestra in formato HH:MM:SS)")); }
-  await loadDevices(state.activeId); renderDetail(); loadOverview(); toast("Device autorizzato — ora puoi scansionare");
+  const res=await apiRaw("POST",`/assets/${state.selId}/authorize`,{status:"active"});
+  if(!res.ok){ return toast("Errore riattivazione"+(res.data&&res.data.error?": "+res.data.error:"")); }
+  await loadDevices(state.activeId); renderDetail(); loadOverview(); toast("Device riattivato — scansionabile");
 }
 async function suspendSelected(){
-  if(!confirm("Sospendere l'autorizzazione? Le scansioni saranno rifiutate finché non riautorizzi.")) return;
+  if(!confirm("Sospendere il device? Sarà escluso dalle scansioni finché non lo riattivi.")) return;
   try{ await api("POST",`/assets/${state.selId}/authorize`,{status:"suspended"});
-    await loadDevices(state.activeId); renderDetail(); loadOverview(); toast("Autorizzazione sospesa"); }
+    await loadDevices(state.activeId); renderDetail(); loadOverview(); toast("Device sospeso (escluso dalle scansioni)"); }
   catch(e){ toast("Errore: "+e.message); }
 }
 async function runScan(kind){
@@ -705,7 +696,7 @@ async function deepScan(){
 }
 async function editDevice(assetId){
   const d=state.devices.find((x)=>x.id===assetId); if(!d) return;
-  const value=prompt(`Nuovo indirizzo/host (tipo: ${d.kind}).\nCambiando il target l'autorizzazione torna "in attesa".`, d.value);
+  const value=prompt(`Nuovo indirizzo/host (tipo: ${d.kind}).`, d.value);
   if(value===null) return; if(!value.trim()) return toast("Il valore non può essere vuoto");
   try{ await api("PATCH",`/assets/${assetId}`,{kind:d.kind,value:value.trim()});
     await loadDevices(state.activeId); if(state.selId===assetId) await selectDevice(assetId); loadOverview(); toast("Device modificato"); }
@@ -732,8 +723,8 @@ function renderDevices(){
   $("#devHeading").textContent=active?`Aggiungi device · ${active.name}`:"Aggiungi device";
   $("#devCount").textContent=state.devices.length;
   $("#devRows").innerHTML=state.devices.map((d)=>{
-    const st=d.auth_status;
-    const pill=`<span class="pill ${esc(st)}">${st==="active"?"autorizzato":st==="suspended"?"sospeso":st==="revoked"?"revocato":"in attesa"}</span>`;
+    const st=d.auth_status, disabled=(st==="suspended"||st==="revoked");
+    const pill=`<span class="pill ${disabled?esc(st):"active"}">${disabled?(st==="suspended"?"sospeso":"revocato"):"attivo"}</span>`;
     const sel=d.id===state.selId?"sel":"";
     return `<tr class="clickable ${sel}" data-open="${esc(d.id)}"><td class="mono">${esc(d.value)}</td><td class="muted">${esc(d.kind)}</td>
       <td>${pill}</td>
@@ -745,13 +736,12 @@ function renderDetail(){
   const d=state.devices.find((x)=>x.id===state.selId);
   if(!d){ $("#detailCard").hidden=true; return; }
   $("#detailCard").hidden=false;
-  const st=d.auth_status, active=st==="active";
+  const st=d.auth_status, disabled=(st==="suspended"||st==="revoked"), active=!disabled;
   $("#dVal").textContent=d.value; $("#dKind").textContent=d.kind;
-  const sp=$("#dStatus"); sp.className="pill "+esc(st);
-  sp.textContent=active?"autorizzato":st==="suspended"?"sospeso":st==="revoked"?"revocato":"in attesa";
-  $("#dRoeLine").innerHTML=`RoE: <b>${d.roe_reference?esc(d.roe_reference):"—"}</b>`;
+  const sp=$("#dStatus"); sp.className="pill "+(active?"active":esc(st));
+  sp.textContent=active?"attivo":(st==="suspended"?"sospeso":"revocato");
+  $("#dRoeLine").innerHTML=active?"Scansionabile di default.":"Escluso dalle scansioni (sospeso/revocato).";
   $("#dAuthSec").hidden=active; $("#dScanSec").hidden=!active;
-  if(!active) $("#dRoe").value=d.roe_reference||"";
   document.querySelectorAll("#dScanSec [data-scan]").forEach((b)=>{
     b.disabled=state.scanning;
     b.innerHTML=state.scanning?'<span class="spinner"></span> scansione…':"▶ "+SCAN_LABEL[b.dataset.scan];

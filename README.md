@@ -6,16 +6,17 @@ nel tempo, con **scope autorizzato per asset** al centro del sistema.
 
 Vedi [`ARCHITECTURE.md`](ARCHITECTURE.md) per il disegno completo e la roadmap.
 
-> ⚠️ **Solo uso autorizzato.** Questo servizio scansiona reti. Ogni asset deve
-> essere autorizzato da una rules-of-engagement / contratto firmato prima di
-> poter essere scansionato — il gate di autorizzazione lo impone a livello di
-> codice. Scansionare senza autorizzazione è reato.
+> ⚠️ **Solo uso autorizzato.** Scansiona esclusivamente asset che amministri o
+> che sei autorizzato a testare. Gli asset sono **attivi (scansionabili) per
+> default** — l'operatore è autorizzato sui propri asset; puoi **sospendere o
+> revocare** un device per escluderlo dalle scansioni. Scansionare sistemi
+> altrui senza autorizzazione è reato.
 
 ## Stato: Milestone 1
 
 Fondamenta funzionanti end-to-end:
-- gate di autorizzazione (testato) — rifiuta asset non `Active`, scaduti, fuori
-  finestra oraria o senza riferimento RoE;
+- scan gate (testato) — asset attivi per default; rifiuta solo i device
+  sospesi/revocati (kill-switch) o senza target;
 - modello dati + persistenza SQLite;
 - API HTTP (axum);
 - scan della superficie esterna (nmap) con diff vs baseline.

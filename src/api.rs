@@ -240,14 +240,14 @@ async fn add_asset(
     if store.get_client(client_id)?.is_none() {
         return Ok(not_found("client"));
     }
-    // New assets start Pending: they cannot be scanned until explicitly
-    // authorised via /assets/:id/authorize.
+    // Active by default — the operator is authorised on their own assets.
+    // Suspend/revoke via /assets/:id/authorize to exclude a device from scans.
     let asset = Asset {
         id: Uuid::new_v4(),
         client_id,
         kind: body.kind,
         value: body.value,
-        auth_status: AuthStatus::Pending,
+        auth_status: AuthStatus::Active,
         authorized_until: None,
         window_start: None,
         window_end: None,
@@ -270,8 +270,8 @@ struct BulkAssets {
     values: Vec<String>,
 }
 
-/// Add many devices at once (for a large estate). All start Pending — scanning
-/// still requires per-asset authorization.
+/// Add many devices at once (for a large estate). All are active by default and
+/// immediately scannable; suspend/revoke to exclude one.
 async fn bulk_add_assets(
     State(store): State<Store>,
     Path(client_id): Path<Uuid>,
@@ -288,7 +288,7 @@ async fn bulk_add_assets(
             client_id,
             kind: b.kind,
             value: v.clone(),
-            auth_status: AuthStatus::Pending,
+            auth_status: AuthStatus::Active,
             authorized_until: None,
             window_start: None,
             window_end: None,
@@ -317,17 +317,16 @@ struct UpdateAsset {
     value: String,
 }
 
-/// Edit a device's kind/value. If the scan target (value) changes, its
-/// authorization is reset to Pending — the old RoE no longer covers the new
-/// target, so it must be re-authorised before any scan.
+/// Edit a device's kind/value. The enabled/disabled state is left unchanged
+/// (the operator is authorised on their own assets).
 async fn update_asset(
     State(store): State<Store>,
     Path(id): Path<Uuid>,
     Json(b): Json<UpdateAsset>,
 ) -> ApiResult {
-    let Some(old) = store.get_asset(id)? else {
+    if store.get_asset(id)?.is_none() {
         return Ok(not_found("asset"));
-    };
+    }
     let value = b.value.trim();
     if value.is_empty() {
         return Ok((
@@ -337,9 +336,6 @@ async fn update_asset(
             .into_response());
     }
     store.set_asset_target(id, b.kind, value)?;
-    if value != old.value {
-        store.update_asset_authorization(id, AuthStatus::Pending, None, None, None, None)?;
-    }
     Ok(Json(store.get_asset(id)?).into_response())
 }
 

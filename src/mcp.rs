@@ -125,7 +125,7 @@ fn native_tools() -> Vec<Value> {
     vec![
         json!({ "name": "nd_add_client", "description": "netdefense: add a client.",
             "inputSchema": obj(json!({ "name": {"type":"string"}, "contact_email": {"type":"string"} }), &["name"]) }),
-        json!({ "name": "nd_add_device", "description": "netdefense: add a device/asset to a client (starts Pending; must be authorized before scanning).",
+        json!({ "name": "nd_add_device", "description": "netdefense: add a device/asset to a client (active by default, immediately scannable).",
             "inputSchema": obj(json!({ "client_id": {"type":"string"}, "kind": {"type":"string","description":"host|domain|url|cidr_range"}, "value": {"type":"string"} }), &["client_id","kind","value"]) }),
         json!({ "name": "nd_authorize", "description": "netdefense: authorize an asset for scanning (sets Active with a signed RoE reference).",
             "inputSchema": obj(json!({ "asset_id": {"type":"string"}, "roe_reference": {"type":"string"} }), &["asset_id","roe_reference"]) }),
@@ -279,7 +279,7 @@ fn nd_add_device(store: &Store, a: &Value) -> Result<String, String> {
         client_id,
         kind,
         value: greq(a, "value")?,
-        auth_status: AuthStatus::Pending,
+        auth_status: AuthStatus::Active,
         authorized_until: None,
         window_start: None,
         window_end: None,

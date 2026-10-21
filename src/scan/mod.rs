@@ -57,8 +57,8 @@ pub async fn run_scan(
     let now = Utc::now();
     let scan_id = Uuid::new_v4();
 
-    // --- authorisation gate ---
-    let target = match authz::authorize(&asset, now) {
+    // --- scan gate (authorised by default; blocks only suspended/revoked) ---
+    let target = match authz::authorize(&asset) {
         Ok(t) => t,
         Err(e) => {
             let scan = Scan {
@@ -68,7 +68,7 @@ pub async fn run_scan(
                 status: ScanStatus::Refused,
                 started_at: now,
                 finished_at: Some(now),
-                note: Some(format!("refused by authorisation gate: {e}")),
+                note: Some(format!("scan refused: {e}")),
             };
             store.insert_scan(&scan)?;
             return Ok(ScanOutcome {
