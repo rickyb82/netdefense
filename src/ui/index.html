@@ -879,23 +879,46 @@ $("#chatForm").addEventListener("submit",async (e)=>{
   const t=$("#chatText").value.trim(); if(!t||chat.busy) return;
   $("#chatText").value="";
   chat.msgs.push({role:"user",content:t});
-  chat.msgs.push({role:"assistant",content:"…"}); renderChat();
+  const bubble={role:"assistant",content:""}; chat.msgs.push(bubble); renderChat();
   chat.busy=true; $("#chatSendBtn").disabled=true;
-  const convo=chat.msgs.filter((m)=>m.role==="user"||(m.role==="assistant"&&m.content!=="…")).map((m)=>({role:m.role,content:m.content}));
+  const convo=chat.msgs.filter((m)=>m.role==="user"||(m.role==="assistant"&&m!==bubble)).map((m)=>({role:m.role,content:m.content}));
   const payload={messages:convo}; if(chatCfg.base) payload.base_url=chatCfg.base; if(chatCfg.model) payload.model=chatCfg.model;
-  const res=await apiRaw("POST","/chat",payload);
-  chat.msgs.pop();
-  if(res.data&&typeof res.data.reply==="string"){
-    if(res.data.tool_log&&res.data.tool_log.length){
-      const names=res.data.tool_log.map((x)=>`<span class="${x.ok?"ok":"no"}">${esc(x.tool)}</span>`).join(", ");
-      chat.msgs.push({role:"tools",content:"tool usati: "+names});
-      refreshAll();
+  let changed=false, streamed=false;
+  try{
+    const r=await fetch("/chat/stream",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+    if(!r.ok||!r.body) throw new Error("stream non disponibile");
+    const reader=r.body.getReader(), dec=new TextDecoder(); let sbuf="";
+    for(;;){
+      const {value,done}=await reader.read(); if(done) break;
+      streamed=true; sbuf+=dec.decode(value,{stream:true});
+      let nl;
+      while((nl=sbuf.indexOf("\n"))>=0){
+        const line=sbuf.slice(0,nl).trim(); sbuf=sbuf.slice(nl+1);
+        if(!line.startsWith("data:")) continue;
+        const data=line.slice(5).trim(); if(!data) continue;
+        let ev; try{ ev=JSON.parse(data); }catch{ continue; }
+        if(ev.type==="token"){ bubble.content+=ev.text; renderChat(); }
+        else if(ev.type==="reset"){ bubble.content=""; renderChat(); }
+        else if(ev.type==="tool"){ chat.msgs.splice(chat.msgs.indexOf(bubble),0,{role:"tools",content:"usa "+esc(ev.name)+"…"}); changed=true; renderChat(); }
+        else if(ev.type==="done"){ if(!bubble.content && ev.reply) bubble.content=ev.reply; if(ev.used_tools) changed=true; renderChat(); }
+        else if(ev.type==="error"){ bubble.content="Errore: "+(ev.message||"server LLM"); renderChat(); }
+      }
     }
-    chat.msgs.push({role:"assistant",content:res.data.reply||"(nessuna risposta)"});
-  } else {
-    chat.msgs.push({role:"assistant",content:"Errore: "+((res.data&&res.data.error)||("HTTP "+res.status))+". Controlla che LM Studio sia avviato sulla porta 1234."});
+  }catch(err){ streamed=false; }
+  if(!streamed){
+    // fallback: richiesta non-streaming
+    const res=await apiRaw("POST","/chat",payload);
+    if(res.data&&typeof res.data.reply==="string"){
+      if(res.data.tool_log&&res.data.tool_log.length){ changed=true;
+        const names=res.data.tool_log.map((x)=>`<span class="${x.ok?"ok":"no"}">${esc(x.tool)}</span>`).join(", ");
+        chat.msgs.splice(chat.msgs.indexOf(bubble),0,{role:"tools",content:"tool usati: "+names}); }
+      bubble.content=res.data.reply||"(nessuna risposta)";
+    } else bubble.content="Errore: "+((res.data&&res.data.error)||("HTTP "+res.status))+". Controlla il server LLM (LM Studio 1234 / Ollama 11434).";
+    renderChat();
   }
+  if(!bubble.content) bubble.content="(nessuna risposta)";
   chat.busy=false; $("#chatSendBtn").disabled=false; renderChat();
+  if(changed) refreshAll();
 });
 
 /* ====================== BOOT ====================== */

@@ -2,16 +2,22 @@
 //! scan triggering. Authorisation is enforced inside `scan::run_scan`, so a
 //! refused scan comes back as HTTP 403 with the reason.
 
+use std::convert::Infallible;
+
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    response::{IntoResponse, Response},
+    response::{
+        sse::{Event, Sse},
+        IntoResponse, Response,
+    },
     routing::{get, post},
     Json, Router,
 };
 use chrono::{DateTime, Duration, NaiveTime, Utc};
 use serde::Deserialize;
 use serde_json::json;
+use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 use uuid::Uuid;
 
 use crate::domain::*;
@@ -24,6 +30,7 @@ pub fn router(store: Store) -> Router {
         .route("/health", get(|| async { "ok" }))
         .route("/overview", get(overview))
         .route("/chat", post(chat_send))
+        .route("/chat/stream", post(chat_stream))
         .route("/chat/status", get(chat_status))
         .route("/clients", post(create_client).get(list_clients))
         .route("/clients/:id/assets", post(add_asset).get(list_assets))
@@ -122,6 +129,23 @@ struct StatusQuery {
 async fn chat_status(Query(q): Query<StatusQuery>) -> ApiResult {
     let cfg = crate::chat::ChatConfig::from_env();
     Ok(Json(crate::chat::status(&cfg, q.base_url.as_deref()).await).into_response())
+}
+
+/// Streaming chat: Server-Sent Events, one JSON object per event (token / tool
+/// / tool_result / reset / done / error). The agentic loop runs in a task that
+/// feeds the channel.
+async fn chat_stream(
+    State(store): State<Store>,
+    Json(req): Json<crate::chat::ChatRequest>,
+) -> Response {
+    let (tx, rx) = tokio::sync::mpsc::channel::<serde_json::Value>(64);
+    tokio::spawn(async move {
+        let cfg = crate::chat::ChatConfig::from_env();
+        crate::chat::run_stream(&store, &cfg, req, tx).await;
+    });
+    let stream = ReceiverStream::new(rx)
+        .map(|v| Ok::<Event, Infallible>(Event::default().data(v.to_string())));
+    Sse::new(stream).into_response()
 }
 
 /// One aggregate payload that populates the whole SOC dashboard: rollup counts
