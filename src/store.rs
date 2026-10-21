@@ -312,6 +312,11 @@ impl Store {
         self.query_assets("WHERE client_id = ?1", &client_id.to_string())
     }
 
+    /// Every asset across all clients (used by the SNMP collector).
+    pub fn list_all_assets(&self) -> Result<Vec<Asset>> {
+        self.query_assets("", "")
+    }
+
     pub fn get_asset(&self, id: Id) -> Result<Option<Asset>> {
         Ok(self
             .query_assets("WHERE id = ?1", &id.to_string())?

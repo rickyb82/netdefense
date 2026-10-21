@@ -19,6 +19,7 @@ mod prtg;
 mod scan;
 mod scheduler;
 mod snmp;
+mod snmp_poll;
 mod store;
 mod ui;
 mod voip;
@@ -49,6 +50,15 @@ async fn main() -> anyhow::Result<()> {
             nvd_cfg.poll_secs
         );
         nvd::spawn(store.clone(), nvd_cfg);
+    }
+
+    let snmp_cfg = snmp_poll::SnmpConfig::from_env();
+    if snmp_cfg.enabled {
+        eprintln!(
+            "netdefense snmp: inventory poller enabled (every {}s, community set via env)",
+            snmp_cfg.poll_secs
+        );
+        snmp_poll::spawn(store.clone(), snmp_cfg);
     }
 
     let app = api::router(store);
