@@ -136,20 +136,31 @@ pub async fn scan(
         ));
     }
     if let Some((cms, ver)) = web::detect_cms(&server, &x_generator, &body) {
-        let v = ver.unwrap_or_else(|| "versione n/d".into());
+        let vshow = ver.clone().unwrap_or_else(|| "versione n/d".into());
         let extra = if cms == "WordPress" {
-            " Per un controllo plugin/temi usare wpscan (tool MCP)."
+            " Per plugin/temi vulnerabili usa wpscan con un API token WPScan (env WPSCAN_API_TOKEN); il core è correlato alle CVE automaticamente."
         } else {
             ""
         };
         out.push(draft(
             &format!("webhyg/cms/{}", cms.to_ascii_lowercase()),
-            format!("CMS rilevato: {cms} {v}"),
+            format!("CMS rilevato: {cms} {vshow}"),
             format!(
-                "Rilevato {cms} (versione {v}). Tenere il core e le estensioni aggiornati.{extra}"
+                "Rilevato {cms} (versione {vshow}). Tenere il core e le estensioni aggiornati.{extra}"
             ),
             Severity::Low,
         ));
+        // Tie the CMS core/version into the inventory + CVE correlation, like
+        // the surface scan does for network appliances.
+        let facts = crate::fleet::DeviceFacts {
+            asset_id,
+            vendor: cms.clone(),
+            product: cms.to_ascii_lowercase(),
+            version: ver,
+            mgmt: vec![],
+        };
+        store.upsert_device_facts(&facts)?;
+        let _ = crate::fleet::run_correlation(store)?;
     }
 
     // --- mixed content (HTTP resources on an HTTPS page) ---

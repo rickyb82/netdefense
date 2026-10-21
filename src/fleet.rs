@@ -80,6 +80,24 @@ pub fn catalog() -> &'static [Product] {
             label: "Cirpack softswitch",
             cpe_token: "cirpack",
         },
+        Product {
+            key: "wordpress",
+            vendor: "WordPress",
+            label: "WordPress core",
+            cpe_token: "wordpress",
+        },
+        Product {
+            key: "joomla",
+            vendor: "Joomla",
+            label: "Joomla core",
+            cpe_token: "joomla",
+        },
+        Product {
+            key: "drupal",
+            vendor: "Drupal",
+            label: "Drupal core",
+            cpe_token: "drupal",
+        },
     ]
 }
 
