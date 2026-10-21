@@ -279,7 +279,7 @@
             <button class="btn ghost" data-scan="vuln">▶ Vulnerabilità / CVE</button>
           </div>
           <button class="btn" id="dDeepBtn" style="margin-top:10px">▶▶ Scansione profonda (tutti i controlli adatti)</button>
-          <div class="muted small" style="margin-top:6px">Superficie esterna usa <span class="mono">nmap</span>. Disponibilità, igiene web e SQL injection sono native (igiene web / SQLi su <span class="mono">url</span>/<span class="mono">domain</span>). Vulnerabilità correla le CVE con i fact del device. La profonda lancia in sequenza i controlli adatti al tipo di asset.</div>
+          <div class="muted small" style="margin-top:6px"><b>Superficie esterna</b>: nmap con rilevamento versione → su MikroTik &amp; co. identifica RouterOS/versione, porte Winbox/API e correla le CVE. <b>Igiene web</b>: header, mixed-content (CSS/JS http), rileva CMS (WordPress/Joomla/Drupal) e fa crawl delle pagine lanciando SQLi su quelle con parametri. <b>Vulnerabilità</b>: CVE sui fact del device. <b>Profonda</b>: tutti i controlli adatti al tipo di asset, in sequenza.</div>
           <button class="btn sm danger" id="dSuspendBtn" style="margin-top:10px">Sospendi autorizzazione</button>
         </div>
         <div id="dOutcome" hidden>
