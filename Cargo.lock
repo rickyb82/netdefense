@@ -670,6 +670,7 @@ dependencies = [
  "anyhow",
  "axum",
  "chrono",
+ "kali-mcp",
  "reqwest",
  "rusqlite",
  "serde",

@@ -12,6 +12,7 @@ mod disclosure;
 mod domain;
 mod fleet;
 mod flowbgp;
+mod mcp;
 mod nms;
 mod notify;
 mod nvd;
@@ -40,6 +41,14 @@ async fn main() -> anyhow::Result<()> {
 
     let store = store::Store::open(&db_path)?;
     store.migrate()?;
+
+    // `netdefense mcp` runs the unified MCP server (app ops + kali tools) over
+    // stdio instead of the HTTP service.
+    if std::env::args().nth(1).as_deref() == Some("mcp") {
+        eprintln!("netdefense mcp: serving over stdio (db: {db_path})");
+        mcp::serve(store).await;
+        return Ok(());
+    }
 
     scheduler::spawn(store.clone(), Duration::from_secs(tick_secs));
     notify::spawn(store.clone(), notify::NotifyConfig::from_env());

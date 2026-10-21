@@ -3,11 +3,7 @@
 //! Intended for authorised use only — testing and defending networks and
 //! systems you own or have explicit permission to assess.
 
-mod protocol;
-mod runner;
-mod tools;
-
 #[tokio::main]
 async fn main() {
-    protocol::serve().await;
+    kali_mcp::protocol::serve().await;
 }

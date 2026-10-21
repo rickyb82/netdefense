@@ -140,10 +140,20 @@ sqlmap, hydra, …). Il registro dei tool è in
 [`kali-mcp/src/tools.rs`](kali-mcp/src/tools.rs): ogni tool è un `ToolDef`
 (nome, binario, descrizione, JSON-Schema dei parametri, funzione che costruisce
 gli argomenti CLI). Si personalizza aggiungendo/modificando i `ToolDef` lì,
-senza toccare il codice di protocollo. `netdefense` e `kali-mcp` condividono lo
-stesso schema di esecuzione subprocess+timeout ma restano crate separati:
-`kali-mcp` è il motore interattivo via MCP, `netdefense` è il servizio gestito
-in cui ogni esecuzione passa dal gate di autorizzazione.
+senza toccare il codice di protocollo. `kali-mcp` è ora anche una **libreria**
+(`lib.rs`: `tools` + `runner` + `protocol`), riusata da netdefense.
+
+## Server MCP dell'app (`src/mcp.rs`, `netdefense mcp`)
+
+Oltre all'HTTP, netdefense è **esso stesso un server MCP** (stdio, JSON-RPC):
+`netdefense mcp` espone le operazioni native come tool `nd_*` (`nd_add_client`,
+`nd_add_device`, `nd_authorize`, `nd_scan`, `nd_list_assets`, `nd_findings`,
+`nd_alerts`) **e vi collega l'intero catalogo kali-mcp** (17 tool) riusando la
+libreria `kali-mcp`. Un unico endpoint MCP guida quindi sia l'app sia i tool
+Kali (24 tool in totale). I tool `nd_*` passano dagli stessi percorsi dell'API
+(quindi gli scan restano dietro il gate di autorizzazione); i tool Kali girano
+come subprocess via il runner di kali-mcp. Registrabile in Emily
+(`mcp_servers.json`, type `stdio`, `min_role: admin`).
 
 I tipi di scan non ancora implementati (`Vuln`, `Availability`, `WebHygiene`)
 passano comunque dal gate e restituiscono `failed` con nota "scanner not yet
