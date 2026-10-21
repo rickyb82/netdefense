@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>NetDefense · Gestionale</title>
+<style>
+  :root {
+    --bg:#f4f6f8; --surface:#fff; --surface-2:#eef1f4; --line:#d9e0e6;
+    --ink:#1a2530; --muted:#5e6e7c; --accent:#0d8a8a; --accent-ink:#fff;
+    --ok:#1f9d55; --warn:#c9770a; --danger:#c23b3b; --pending:#8a93a0;
+    --sans:system-ui,-apple-system,"Segoe UI",sans-serif; --mono:ui-monospace,Menlo,monospace;
+    color-scheme:light;
+  }
+  @media (prefers-color-scheme:dark){ :root{
+    --bg:#0e141a; --surface:#161e26; --surface-2:#1c2630; --line:#2a3742;
+    --ink:#e4ecf2; --muted:#90a0ae; --accent:#2bb9b9; --accent-ink:#04201f;
+    --ok:#45c47d; --warn:#e2a24a; --danger:#e06a6a; --pending:#7d8894; color-scheme:dark; } }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.45;}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 16px 48px;}
+  h1{font-size:20px;margin:0;} h2{font-size:14px;margin:0 0 14px;}
+  .muted{color:var(--muted);} .mono{font-family:var(--mono);}
+  header{position:sticky;top:0;z-index:10;background:var(--surface);border-bottom:1px solid var(--line);
+    padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  .brand{display:flex;align-items:center;gap:10px;}
+  .logo{width:30px;height:30px;border-radius:8px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;}
+  .grow{flex:1 1 20px;}
+  .chip{font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--line);display:inline-flex;align-items:center;gap:6px;}
+  .chip .dot{width:8px;height:8px;border-radius:50%;background:var(--pending);}
+  .chip.live .dot{background:var(--ok);} .chip.err .dot{background:var(--danger);}
+  input,select,textarea,button{font:inherit;}
+  input,select,textarea{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%;}
+  textarea{resize:vertical;min-height:110px;font-family:var(--mono);font-size:13px;}
+  label{display:block;font-size:12px;color:var(--muted);margin:0 0 4px;}
+  .field{margin-bottom:10px;} .row{display:flex;gap:10px;flex-wrap:wrap;} .row>*{flex:1 1 140px;min-width:0;}
+  button{background:var(--accent);color:var(--accent-ink);border:1px solid transparent;border-radius:8px;padding:9px 14px;cursor:pointer;font-weight:600;white-space:nowrap;}
+  button.ghost{background:transparent;color:var(--accent);border-color:var(--accent);}
+  button.sm{padding:5px 10px;font-size:12px;font-weight:500;}
+  button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+  .cols{display:grid;grid-template-columns:340px 1fr;gap:16px;align-items:start;margin-top:16px;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 1px 2px rgba(16,32,48,.06);padding:16px;}
+  .card+.card{margin-top:16px;}
+  .client-list{display:flex;flex-direction:column;gap:4px;margin-bottom:14px;max-height:320px;overflow-y:auto;}
+  .client-item{display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:8px;border:1px solid transparent;cursor:pointer;text-align:left;width:100%;background:transparent;color:var(--ink);font-weight:500;}
+  .client-item:hover{background:var(--surface-2);}
+  .client-item.active{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent);}
+  .tabs{display:flex;gap:6px;margin-bottom:14px;}
+  .tab{flex:0 0 auto;background:var(--surface-2);color:var(--ink);border:1px solid var(--line);font-weight:500;}
+  .tab.active{background:var(--accent);color:var(--accent-ink);border-color:transparent;}
+  table{width:100%;border-collapse:collapse;font-size:13px;} .table-scroll{overflow-x:auto;}
+  thead th{text-align:left;font-size:11px;letter-spacing:.03em;text-transform:uppercase;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap;}
+  tbody td{padding:9px 10px;border-bottom:1px solid var(--surface-2);}
+  tbody tr:hover{background:var(--surface-2);}
+  .pill{font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid var(--line);display:inline-flex;align-items:center;gap:5px;white-space:nowrap;}
+  .pill::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--pending);}
+  .pill.active{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 45%,var(--line));} .pill.active::before{background:var(--ok);}
+  .empty{color:var(--muted);text-align:center;padding:30px 10px;font-size:13px;}
+  .count-badge{font-family:var(--mono);font-size:12px;color:var(--muted);margin-left:auto;}
+  .hdr-row{display:flex;align-items:center;gap:8px;margin-bottom:14px;}
+  #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:30;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;font-size:13px;max-width:90vw;}
+  [hidden]{display:none!important;}
+  @media (max-width:760px){.cols{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <span class="logo" aria-hidden="true">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><path d="M7 7h.01M7 17h.01"/></svg>
+    </span>
+    <div><h1>NetDefense · Gestionale</h1><div class="muted" style="font-size:11px">Clienti &amp; device</div></div>
+  </div>
+  <div class="grow"></div>
+  <span class="chip" id="connChip"><span class="dot"></span><span id="connText">…</span></span>
+</header>
+
+<div class="wrap">
+  <div class="cols">
+    <div>
+      <div class="card">
+        <div class="hdr-row"><h2>Clienti</h2><span class="count-badge" id="clientCount">0</span></div>
+        <div class="client-list" id="clientList"></div>
+        <h2>Nuovo cliente</h2>
+        <div class="field"><label for="cName">Nome</label><input id="cName" placeholder="ACME S.p.A." /></div>
+        <div class="field"><label for="cEmail">Email referente</label><input id="cEmail" placeholder="it@acme.example" /></div>
+        <button id="addClientBtn">＋ Aggiungi cliente</button>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <div class="hdr-row"><h2 id="devHeading">Aggiungi device</h2><span class="count-badge" id="activeClientName">nessun cliente</span></div>
+        <div class="tabs"><button class="tab active" id="tabSingle">Singolo</button><button class="tab" id="tabBulk">Massivo</button></div>
+        <div id="paneSingle">
+          <div class="row">
+            <div class="field" style="flex:1 1 120px"><label for="sKind">Tipo</label>
+              <select id="sKind"><option value="host">host</option><option value="domain">domain</option><option value="url">url</option><option value="cidr_range">cidr_range</option></select></div>
+            <div class="field" style="flex:2 1 220px"><label for="sValue">Indirizzo / host</label><input id="sValue" placeholder="203.0.113.10" /></div>
+          </div>
+          <button id="addDeviceBtn">＋ Aggiungi device</button>
+        </div>
+        <div id="paneBulk" hidden>
+          <div class="row"><div class="field" style="flex:1 1 120px"><label for="bKind">Tipo</label>
+            <select id="bKind"><option value="host">host</option><option value="domain">domain</option><option value="url">url</option><option value="cidr_range">cidr_range</option></select></div></div>
+          <div class="field"><label for="bValues">Uno per riga (incolla da PRTG / CRM / inventario)</label><textarea id="bValues" placeholder="10.0.0.1&#10;10.0.0.2&#10;edge.rm.example"></textarea></div>
+          <button id="addBulkBtn">＋ Aggiungi in blocco</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="hdr-row"><h2>Device del cliente</h2><span class="count-badge" id="devCount">0</span></div>
+        <div class="table-scroll"><table>
+          <thead><tr><th>Device</th><th>Tipo</th><th>Stato</th><th>Azione</th></tr></thead>
+          <tbody id="devRows"></tbody>
+        </table></div>
+        <div class="empty" id="devEmpty" hidden>Nessun device per questo cliente. Aggiungine uno sopra.</div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="toast" hidden></div>
+
+<script>
+"use strict";
+const $=(s)=>document.querySelector(s);
+const esc=(s)=>String(s??"").replace(/[&<>"]/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const state={clients:[],activeId:null,devices:[]};
+
+function toast(m){const t=$("#toast");t.textContent=m;t.hidden=false;clearTimeout(toast._t);toast._t=setTimeout(()=>t.hidden=true,2600);}
+
+// same-origin API (served by the netdefense binary itself)
+async function api(method,path,body){
+  const r=await fetch(path,{method,headers:{"Content-Type":"application/json"},body:body?JSON.stringify(body):undefined});
+  if(!r.ok) throw new Error("HTTP "+r.status);
+  return r.status===204?null:r.json();
+}
+
+function setConn(ok){const c=$("#connChip");c.className="chip "+(ok?"live":"err");$("#connText").textContent=ok?"connesso":"API non raggiungibile";}
+
+async function loadClients(){
+  try{ state.clients=await api("GET","/clients"); setConn(true); }
+  catch{ setConn(false); toast("Impossibile contattare l'API"); return; }
+  renderClients();
+  if(!state.activeId && state.clients.length) selectClient(state.clients[0].id);
+  else renderDevices();
+}
+async function loadDevices(id){
+  try{ state.devices=await api("GET",`/clients/${id}/assets`); }catch{ state.devices=[]; }
+  renderDevices();
+}
+function selectClient(id){state.activeId=id;renderClients();loadDevices(id);}
+
+async function addClient(){
+  const name=$("#cName").value.trim(),contact_email=$("#cEmail").value.trim();
+  if(!name) return toast("Inserisci il nome del cliente");
+  try{ const c=await api("POST","/clients",{name,contact_email}); state.clients.push(c);
+    $("#cName").value="";$("#cEmail").value=""; renderClients(); selectClient(c.id); toast("Cliente aggiunto"); }
+  catch(e){ toast("Errore: "+e.message); }
+}
+async function addDevice(){
+  if(!state.activeId) return toast("Seleziona un cliente");
+  const kind=$("#sKind").value,value=$("#sValue").value.trim();
+  if(!value) return toast("Inserisci l'indirizzo del device");
+  try{ await api("POST",`/clients/${state.activeId}/assets`,{kind,value}); $("#sValue").value="";
+    await loadDevices(state.activeId); toast("Device aggiunto"); }
+  catch(e){ toast("Errore: "+e.message); }
+}
+async function addBulk(){
+  if(!state.activeId) return toast("Seleziona un cliente");
+  const kind=$("#bKind").value;
+  const values=$("#bValues").value.split("\n").map((s)=>s.trim()).filter(Boolean);
+  if(!values.length) return toast("Incolla almeno un device");
+  try{ const res=await api("POST",`/clients/${state.activeId}/assets/bulk`,{kind,values});
+    $("#bValues").value=""; await loadDevices(state.activeId); toast(`Aggiunti ${res.added} device (${res.received} ricevuti)`); }
+  catch(e){ toast("Errore: "+e.message); }
+}
+async function authorize(assetId){
+  const roe=prompt("Riferimento contratto / RoE firmato (obbligatorio):","RoE-2026-");
+  if(roe===null) return; if(!roe.trim()) return toast("Serve un riferimento RoE");
+  try{ await api("POST",`/assets/${assetId}/authorize`,{status:"active",roe_reference:roe.trim()});
+    await loadDevices(state.activeId); toast("Device autorizzato"); }
+  catch(e){ toast("Errore: "+e.message); }
+}
+
+function renderClients(){
+  $("#clientCount").textContent=state.clients.length;
+  $("#clientList").innerHTML=state.clients.map((c)=>
+    `<button class="client-item ${c.id===state.activeId?"active":""}" data-id="${esc(c.id)}">${esc(c.name)}</button>`
+  ).join("")||`<div class="empty">Nessun cliente. Creane uno qui sotto.</div>`;
+}
+function renderDevices(){
+  const active=state.clients.find((c)=>c.id===state.activeId);
+  $("#activeClientName").textContent=active?active.name:"nessun cliente";
+  $("#devHeading").textContent=active?`Aggiungi device · ${active.name}`:"Aggiungi device";
+  $("#devCount").textContent=state.devices.length;
+  $("#devRows").innerHTML=state.devices.map((d)=>{
+    const act=d.auth_status==="active";
+    const action=act?`<span class="muted" style="font-size:12px">—</span>`:`<button class="sm ghost" data-auth="${esc(d.id)}">Autorizza</button>`;
+    return `<tr><td class="mono">${esc(d.value)}</td><td class="muted">${esc(d.kind)}</td>
+      <td><span class="pill ${act?"active":""}">${act?"autorizzato":"in attesa"}</span></td><td>${action}</td></tr>`;
+  }).join("");
+  $("#devEmpty").hidden=state.devices.length>0||!active;
+}
+
+$("#clientList").addEventListener("click",(e)=>{const b=e.target.closest("[data-id]");if(b)selectClient(b.dataset.id);});
+$("#devRows").addEventListener("click",(e)=>{const b=e.target.closest("[data-auth]");if(b)authorize(b.dataset.auth);});
+$("#addClientBtn").addEventListener("click",addClient);
+$("#addDeviceBtn").addEventListener("click",addDevice);
+$("#addBulkBtn").addEventListener("click",addBulk);
+$("#tabSingle").addEventListener("click",()=>{$("#tabSingle").classList.add("active");$("#tabBulk").classList.remove("active");$("#paneSingle").hidden=false;$("#paneBulk").hidden=true;});
+$("#tabBulk").addEventListener("click",()=>{$("#tabBulk").classList.add("active");$("#tabSingle").classList.remove("active");$("#paneBulk").hidden=false;$("#paneSingle").hidden=true;});
+loadClients();
+</script>
+</body>
+</html>

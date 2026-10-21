@@ -20,6 +20,7 @@ mod scan;
 mod scheduler;
 mod snmp;
 mod store;
+mod ui;
 mod voip;
 mod web;
 

@@ -20,6 +20,7 @@ use crate::store::Store;
 
 pub fn router(store: Store) -> Router {
     Router::new()
+        .route("/", get(index_ui))
         .route("/health", get(|| async { "ok" }))
         .route("/clients", post(create_client).get(list_clients))
         .route("/clients/:id/assets", post(add_asset).get(list_assets))
@@ -81,6 +82,12 @@ impl<E: Into<anyhow::Error>> From<E> for ApiError {
 }
 
 type ApiResult = Result<Response, ApiError>;
+
+// ---- built-in management UI ----
+
+async fn index_ui() -> axum::response::Html<&'static str> {
+    axum::response::Html(crate::ui::INDEX)
+}
 
 // ---- clients ----
 
