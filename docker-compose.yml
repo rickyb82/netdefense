@@ -20,6 +20,9 @@ services:
     # in-app chat assistant talks to the host via host.docker.internal.
     environment:
       - NETDEFENSE_LLM_URL=http://host.docker.internal:1234/v1
+      # Optional: free WPScan API token for vulnerable plugin/theme enumeration
+      # (export it on the host and it is passed through to wpscan here).
+      - WPSCAN_API_TOKEN=${WPSCAN_API_TOKEN:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
