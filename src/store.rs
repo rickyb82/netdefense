@@ -19,6 +19,16 @@ pub struct Store {
     conn: Arc<Mutex<Connection>>,
 }
 
+/// SQL predicate (on an aliased `findings f`) true only for findings belonging
+/// to the latest *completed* scan of their (asset, kind) — i.e. the current
+/// state. Rescanning a target does not accumulate in the views: older scans'
+/// findings stay in the database for the baseline diff and the audit trail, but
+/// the current-state queries show only the most recent scan per kind.
+const CURRENT_PRED: &str = "EXISTS (SELECT 1 FROM scans s WHERE s.id = f.scan_id \
+AND s.status = 'completed' AND NOT EXISTS (SELECT 1 FROM scans s2 \
+WHERE s2.asset_id = s.asset_id AND s2.kind = s.kind AND s2.status = 'completed' \
+AND (s2.started_at > s.started_at OR (s2.started_at = s.started_at AND s2.id > s.id))))";
+
 // ---- small parse helpers ----------------------------------------------------
 
 fn pid(s: &str) -> Result<Id> {
@@ -184,6 +194,7 @@ impl Store {
             CREATE INDEX IF NOT EXISTS idx_assets_client ON assets(client_id);
             CREATE INDEX IF NOT EXISTS idx_scans_asset ON scans(asset_id);
             CREATE INDEX IF NOT EXISTS idx_findings_scan ON findings(scan_id);
+            CREATE INDEX IF NOT EXISTS idx_scans_asset_kind ON scans(asset_id, kind, status, started_at);
             CREATE INDEX IF NOT EXISTS idx_schedules_due ON schedules(next_run_at);
             CREATE INDEX IF NOT EXISTS idx_alerts_asset ON alerts(asset_id);
             CREATE INDEX IF NOT EXISTS idx_cves_product ON cves(product);
@@ -469,14 +480,17 @@ impl Store {
     }
 
     pub fn list_findings_for_asset(&self, asset_id: Id) -> Result<Vec<Finding>> {
-        self.query_findings("WHERE asset_id = ?1", &asset_id.to_string())
+        // Current state only: the latest completed scan per kind, so rescanning
+        // does not accumulate duplicate findings in the device view.
+        let wc = format!("WHERE f.asset_id = ?1 AND {CURRENT_PRED}");
+        self.query_findings(&wc, &asset_id.to_string())
     }
 
     fn query_findings(&self, where_clause: &str, arg: &str) -> Result<Vec<Finding>> {
         let conn = self.lock()?;
         let sql = format!(
             "SELECT id, scan_id, asset_id, kind, key, title, detail, severity, observed_at
-             FROM findings {where_clause} ORDER BY observed_at DESC"
+             FROM findings f {where_clause} ORDER BY observed_at DESC"
         );
         let mut stmt = conn.prepare(&sql)?;
         let raws = stmt
@@ -1025,9 +1039,10 @@ impl Store {
             alerts: self.scalar_i64("SELECT COUNT(*) FROM alerts")?,
             alerts_by_severity: self
                 .group_map("SELECT severity, COUNT(*) FROM alerts GROUP BY severity")?,
-            findings: self.scalar_i64("SELECT COUNT(*) FROM findings")?,
-            findings_by_severity: self
-                .group_map("SELECT severity, COUNT(*) FROM findings GROUP BY severity")?,
+            findings: self.scalar_i64(&format!("SELECT COUNT(*) FROM findings f WHERE {CURRENT_PRED}"))?,
+            findings_by_severity: self.group_map(&format!(
+                "SELECT f.severity, COUNT(*) FROM findings f WHERE {CURRENT_PRED} GROUP BY f.severity"
+            ))?,
             scans: self.scalar_i64("SELECT COUNT(*) FROM scans")?,
             scans_by_status: self
                 .group_map("SELECT status, COUNT(*) FROM scans GROUP BY status")?,
@@ -1123,11 +1138,12 @@ impl Store {
     /// Most recent findings across all assets, with the asset value, for the feed.
     pub fn recent_findings(&self, limit: i64) -> Result<Vec<RecentFinding>> {
         let conn = self.lock()?;
-        let mut stmt = conn.prepare(
+        let mut stmt = conn.prepare(&format!(
             "SELECT f.asset_id, a.value, f.kind, f.key, f.title, f.severity, f.observed_at
              FROM findings f JOIN assets a ON a.id = f.asset_id
-             ORDER BY f.observed_at DESC LIMIT ?1",
-        )?;
+             WHERE {CURRENT_PRED}
+             ORDER BY f.observed_at DESC LIMIT ?1"
+        ))?;
         let raws = stmt
             .query_map([limit], |r| {
                 Ok((
@@ -1594,5 +1610,67 @@ mod tests {
         assert_eq!(run_correlation(&s).unwrap(), 1);
         assert_eq!(run_correlation(&s).unwrap(), 0);
         assert_eq!(s.list_alerts_for_asset(aid).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn findings_show_only_latest_completed_scan_per_kind() {
+        let s = mem();
+        let aid = seed_asset(&s);
+        let t1 = Utc::now();
+        let scan1 = Uuid::new_v4();
+        s.insert_scan(&Scan {
+            id: scan1,
+            asset_id: aid,
+            kind: ScanKind::ExternalSurface,
+            status: ScanStatus::Completed,
+            started_at: t1,
+            finished_at: Some(t1),
+            note: None,
+        })
+        .unwrap();
+        for k in ["tcp/22", "tcp/80"] {
+            s.insert_finding(&Finding {
+                id: Uuid::new_v4(),
+                scan_id: scan1,
+                asset_id: aid,
+                kind: "open_port".into(),
+                key: k.into(),
+                title: k.into(),
+                detail: String::new(),
+                severity: Severity::Info,
+                observed_at: t1,
+            })
+            .unwrap();
+        }
+        // A later scan of the same kind supersedes the earlier one.
+        let t2 = t1 + Duration::seconds(5);
+        let scan2 = Uuid::new_v4();
+        s.insert_scan(&Scan {
+            id: scan2,
+            asset_id: aid,
+            kind: ScanKind::ExternalSurface,
+            status: ScanStatus::Completed,
+            started_at: t2,
+            finished_at: Some(t2),
+            note: None,
+        })
+        .unwrap();
+        s.insert_finding(&Finding {
+            id: Uuid::new_v4(),
+            scan_id: scan2,
+            asset_id: aid,
+            kind: "open_port".into(),
+            key: "tcp/22".into(),
+            title: "tcp/22".into(),
+            detail: String::new(),
+            severity: Severity::Info,
+            observed_at: t2,
+        })
+        .unwrap();
+
+        let cur = s.list_findings_for_asset(aid).unwrap();
+        assert_eq!(cur.len(), 1, "only the latest scan's findings remain");
+        assert_eq!(cur[0].key, "tcp/22");
+        assert_eq!(cur[0].scan_id, scan2);
     }
 }
