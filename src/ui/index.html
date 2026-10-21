@@ -61,6 +61,8 @@
   .stage-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:16px;}
   .stage-head .t{font-size:20px;font-weight:700;letter-spacing:-.01em;}
   .stage-head .u{font-size:12px;color:var(--muted);font-family:var(--mono);}
+  .toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px;background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:10px 12px;}
+  .toolbar select{width:auto;min-width:160px;}
 
   .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px;}
   .kpi{background:linear-gradient(180deg,var(--panel),var(--panel-2));border:1px solid var(--line);border-radius:13px;padding:14px 16px;position:relative;overflow:hidden;}
@@ -85,6 +87,8 @@
   .barfill{display:block;height:100%;border-radius:6px;}
   .barfill.s-critical{background:var(--crit);} .barfill.s-high{background:var(--high);}
   .barfill.s-medium{background:var(--med);} .barfill.s-low{background:var(--low);} .barfill.s-info{background:var(--info);}
+  .barfill.s-accent{background:linear-gradient(90deg,var(--accent),var(--accent-2));}
+  .barrow .mono.small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .barval{font-family:var(--mono);font-size:12px;color:var(--ink-dim);text-align:right;}
 
   /* severity pills */
@@ -269,11 +273,13 @@
           <h3>Lancia una scansione</h3>
           <div class="scan-btns">
             <button class="btn ghost" data-scan="external_surface">▶ Superficie esterna</button>
+            <button class="btn ghost" data-scan="availability">▶ Disponibilità</button>
+            <button class="btn ghost" data-scan="web_hygiene">▶ Igiene web</button>
             <button class="btn ghost" data-scan="sql_injection">▶ SQL injection</button>
-            <button class="btn ghost" data-scan="web_hygiene" disabled title="In arrivo">Igiene web</button>
-            <button class="btn ghost" data-scan="availability" disabled title="In arrivo">Disponibilità</button>
+            <button class="btn ghost" data-scan="vuln">▶ Vulnerabilità / CVE</button>
           </div>
-          <div class="muted small" style="margin-top:6px">Superficie esterna usa <span class="mono">nmap</span> (se installato). SQL injection è nativa e va su device di tipo <span class="mono">url</span>.</div>
+          <button class="btn" id="dDeepBtn" style="margin-top:10px">▶▶ Scansione profonda (tutti i controlli adatti)</button>
+          <div class="muted small" style="margin-top:6px">Superficie esterna usa <span class="mono">nmap</span>. Disponibilità, igiene web e SQL injection sono native (igiene web / SQLi su <span class="mono">url</span>/<span class="mono">domain</span>). Vulnerabilità correla le CVE con i fact del device. La profonda lancia in sequenza i controlli adatti al tipo di asset.</div>
           <button class="btn sm danger" id="dSuspendBtn" style="margin-top:10px">Sospendi autorizzazione</button>
         </div>
         <div id="dOutcome" hidden>
@@ -305,6 +311,20 @@
     <span class="grow"></span>
     <span class="u" id="updated">—</span>
   </div>
+  <div class="toolbar">
+    <span class="muted small">Scansione sugli asset autorizzati:</span>
+    <select id="bulkKind" aria-label="Tipo di scansione rapida">
+      <option value="external_surface">Superficie esterna</option>
+      <option value="availability">Disponibilità</option>
+      <option value="web_hygiene">Igiene web</option>
+      <option value="sql_injection">SQL injection</option>
+      <option value="vuln">Vulnerabilità / CVE</option>
+    </select>
+    <button class="btn sm" id="bulkScanBtn">▶ Rapida</button>
+    <button class="btn sm" id="deepAllBtn" title="Batteria completa su ogni asset">▶▶ Profonda</button>
+    <span class="grow"></span>
+    <button class="btn sm ghost" id="correlateBtn">Correla CVE</button>
+  </div>
   <div id="startBanner" hidden></div>
   <div class="kpis" id="kpis"></div>
   <div class="panels prow3" style="margin-bottom:14px">
@@ -315,6 +335,10 @@
   <div class="panels prow2" style="margin-bottom:14px">
     <div class="panel"><div class="ph"><h3 style="margin:0">Attività scansioni</h3><span class="cnt" id="pScanCnt"></span></div><div class="feed" id="pScans"></div></div>
     <div class="panel"><div class="ph"><h3 style="margin:0">Alert recenti</h3><span class="cnt" id="pAlertCnt"></span></div><div class="feed" id="pAlerts"></div></div>
+  </div>
+  <div class="panels prow2" style="margin-bottom:14px">
+    <div class="panel"><div class="ph"><h3 style="margin:0">Flotta per prodotto</h3><span class="cnt" id="pFleetCnt"></span></div><div id="pFleet"></div></div>
+    <div class="panel"><div class="ph"><h3 style="margin:0">CVE correlate (recenti)</h3><span class="cnt" id="pCveCnt"></span></div><div class="feed" id="pCve"></div></div>
   </div>
   <div class="panels">
     <div class="panel"><div class="ph"><h3 style="margin:0">Ultimi controlli rilevati</h3><span class="cnt" id="pFindCnt"></span></div><div class="feed" id="pFinds"></div></div>
@@ -395,6 +419,30 @@ function renderDashboard(d){
   renderScanFeed(d.recent_scans||[]);
   renderAlertFeed(d.recent_alerts||[]);
   renderFindFeed(d.recent_findings||[]);
+  renderFleet(d.fleet_by_product||{});
+  renderCveMatches(d.recent_cve_matches||[]);
+}
+function renderFleet(map){
+  const keys=Object.keys(map), total=keys.reduce((s,k)=>s+map[k],0);
+  $("#pFleetCnt").textContent=total?total+" classificati":"";
+  const el=$("#pFleet");
+  if(!total){ el.innerHTML=`<div class="muted small">Nessun device classificato. Esegui una classificazione SNMP o imposta i fact del device.</div>`; return; }
+  const max=Math.max(...keys.map((k)=>map[k]));
+  el.innerHTML=keys.sort((a,b)=>map[b]-map[a]).map((k)=>{
+    const pct=Math.max(5,Math.round(map[k]/max*100));
+    return `<div class="barrow"><span class="mono small">${esc(k)}</span>
+      <span class="bartrack"><span class="barfill s-accent" style="width:${pct}%"></span></span>
+      <span class="barval">${map[k]}</span></div>`;}).join("");
+}
+function renderCveMatches(rows){
+  $("#pCveCnt").textContent=rows.length?rows.length+" recenti":"";
+  const el=$("#pCve");
+  if(!rows.length){ el.innerHTML=`<div class="empty">Nessuna CVE correlata. Importa CVE (NVD) e premi “Correla CVE”.</div>`; return; }
+  el.innerHTML=rows.map((m)=>`<div class="it" data-asset="${esc(m.asset_id)}">
+    <span class="sev ${esc(m.severity)}">${esc(m.severity)}</span>
+    <div class="main"><div class="ttl"><span class="mono">${esc(m.cve_id)}</span> · ${esc(m.product)}</div>
+      <div class="meta">${esc(m.asset_value)}</div></div>
+    <span class="when">${esc(fmtTime(m.created_at))}</span></div>`).join("");
 }
 function kpi(lab,n,sub,cls){
   return `<div class="kpi ${cls||""}"><div class="lab">${esc(lab)}</div><div class="num">${n}</div><div class="sub">${esc(sub)}</div></div>`;
@@ -452,9 +500,27 @@ function renderFindFeed(rows){
 function stLabel(s){return {completed:"completata",refused:"rifiutata",failed:"fallita",running:"in corso",queued:"in coda"}[s]||s;}
 
 // clicking a feed row opens that device in the gestionale
-document.querySelectorAll("#pScans,#pAlerts,#pFinds").forEach((feed)=>{
+document.querySelectorAll("#pScans,#pAlerts,#pFinds,#pCve").forEach((feed)=>{
   feed.addEventListener("click",(e)=>{const it=e.target.closest("[data-asset]"); if(it) openAsset(it.dataset.asset);});
 });
+async function bulkScan(deep){
+  const kind=$("#bulkKind").value;
+  const what=deep?"la scansione PROFONDA (tutti i controlli adatti)":`«${SCAN_LABEL[kind]}»`;
+  if(!confirm(`Avviare ${what} su tutti gli asset autorizzati? Può richiedere tempo.`)) return;
+  const btn=deep?$("#deepAllBtn"):$("#bulkScanBtn"); const old=btn.innerHTML; btn.disabled=true; btn.innerHTML='<span class="spinner"></span>…';
+  const res=await apiRaw("POST","/scan/all",deep?{kind,deep:true}:{kind});
+  btn.disabled=false; btn.innerHTML=old;
+  if(res.data&&typeof res.data.attempted==="number"){ const d=res.data;
+    toast(`Scansionati ${d.attempted} asset: ${d.completed} ok · ${d.refused} rifiutati · ${d.failed} falliti — ${d.alerts} alert, ${d.findings} findings`);
+  } else toast("Errore scansione"+(res.status?` (HTTP ${res.status})`:""));
+  await refreshAll();
+}
+async function correlate(){
+  const res=await apiRaw("POST","/cve/correlate");
+  if(res.data&&typeof res.data.alerts_raised==="number") toast(`Correlazione CVE: ${res.data.alerts_raised} nuovi alert`);
+  else toast("Errore correlazione"+(res.status?` (HTTP ${res.status})`:""));
+  await loadOverview();
+}
 
 /* ====================== DRAWER ====================== */
 function openDrawer(){ $("#drawer").classList.add("open"); $("#drawer").setAttribute("aria-hidden","false");
@@ -559,6 +625,20 @@ async function runScan(kind){
   await Promise.all([loadFindings(state.selId),loadDeviceAlerts(state.selId),loadDevices(state.activeId)]);
   renderDetail(); loadOverview();
 }
+async function deepScan(){
+  if(state.scanning||!state.selId) return;
+  if(!confirm("Avviare la scansione profonda su questo device (tutti i controlli adatti al tipo)? Può richiedere qualche minuto.")) return;
+  state.scanning=true; renderDetail();
+  const res=await apiRaw("POST",`/assets/${state.selId}/deep-scan`);
+  state.scanning=false;
+  if(res.data&&Array.isArray(res.data.outcomes)){
+    state.outcome={deep:true,outcomes:res.data.outcomes};
+    const tot=res.data.outcomes.reduce((s,o)=>s+((o.findings&&o.findings.length)||0),0);
+    toast(`Scansione profonda: ${res.data.outcomes.length} controlli, ${tot} findings`);
+  } else toast("Errore scansione profonda"+(res.status?` (HTTP ${res.status})`:""));
+  await Promise.all([loadFindings(state.selId),loadDeviceAlerts(state.selId),loadDevices(state.activeId)]);
+  renderDetail(); loadOverview();
+}
 async function editDevice(assetId){
   const d=state.devices.find((x)=>x.id===assetId); if(!d) return;
   const value=prompt(`Nuovo indirizzo/host (tipo: ${d.kind}).\nCambiando il target l'autorizzazione torna "in attesa".`, d.value);
@@ -609,16 +689,26 @@ function renderDetail(){
   $("#dAuthSec").hidden=active; $("#dScanSec").hidden=!active;
   if(!active) $("#dRoe").value=d.roe_reference||"";
   document.querySelectorAll("#dScanSec [data-scan]").forEach((b)=>{
-    const impl=b.dataset.scan==="external_surface"||b.dataset.scan==="sql_injection";
-    b.disabled=!impl||state.scanning;
-    if(state.scanning&&impl) b.innerHTML='<span class="spinner"></span> scansione…';
-    else if(impl) b.innerHTML="▶ "+SCAN_LABEL[b.dataset.scan];
+    b.disabled=state.scanning;
+    b.innerHTML=state.scanning?'<span class="spinner"></span> scansione…':"▶ "+SCAN_LABEL[b.dataset.scan];
   });
+  const deep=$("#dDeepBtn");
+  deep.disabled=state.scanning;
+  deep.innerHTML=state.scanning?'<span class="spinner"></span> scansione…':"▶▶ Scansione profonda (tutti i controlli adatti)";
   renderOutcome(); renderFindings(); renderAlerts();
 }
 function renderOutcome(){
   const box=$("#dOutcome"),body=$("#dOutcomeBody"),o=state.outcome;
-  if(!o||!o.scan){ box.hidden=true; return; } box.hidden=false;
+  if(!o){ box.hidden=true; return; }
+  if(o.deep){
+    box.hidden=false;
+    body.innerHTML=`<div><b>Scansione profonda</b> · ${o.outcomes.length} controlli eseguiti</div>`+
+      o.outcomes.map((oc)=>{ const s=oc.scan, cls=s.status==="completed"?"ok":s.status==="refused"?"warn":"danger";
+        return `<div class="note-box ${cls}"><b>${esc(SCAN_LABEL[s.kind]||s.kind)}</b> · ${esc(stLabel(s.status))} · ${oc.findings.length} findings${oc.alert?` · <span class="sev ${esc(oc.alert.severity)}">alert</span>`:""}${s.note?`<div class="muted small">${esc(s.note)}</div>`:""}</div>`;
+      }).join("");
+    return;
+  }
+  if(!o.scan){ box.hidden=true; return; } box.hidden=false;
   const s=o.scan, cls=s.status==="completed"?"ok":s.status==="refused"?"warn":"danger";
   let html=`<div><b>${esc(SCAN_LABEL[s.kind]||s.kind)}</b> · ${esc(stLabel(s.status))}</div>`;
   if(s.note) html+=`<div class="note-box ${cls}">${esc(s.note)}</div>`;
@@ -671,6 +761,10 @@ $("#dFindRows").addEventListener("click",(e)=>{
 $("#detailCard").addEventListener("click",(e)=>{ const sc=e.target.closest("[data-scan]"); if(sc&&!sc.disabled) return runScan(sc.dataset.scan); });
 $("#dAuthBtn").addEventListener("click",authorizeSelected);
 $("#dSuspendBtn").addEventListener("click",suspendSelected);
+$("#dDeepBtn").addEventListener("click",deepScan);
+$("#bulkScanBtn").addEventListener("click",()=>bulkScan(false));
+$("#deepAllBtn").addEventListener("click",()=>bulkScan(true));
+$("#correlateBtn").addEventListener("click",correlate);
 $("#addClientBtn").addEventListener("click",addClient);
 $("#addDeviceBtn").addEventListener("click",addDevice);
 $("#addBulkBtn").addEventListener("click",addBulk);

@@ -1155,6 +1155,50 @@ impl Store {
             })
             .collect()
     }
+
+    /// Device count per product key, for the fleet breakdown.
+    pub fn fleet_by_product(&self) -> Result<BTreeMap<String, i64>> {
+        self.group_map("SELECT product, COUNT(*) FROM device_facts GROUP BY product")
+    }
+
+    /// Most recent CVE↔device matches, joined with the CVE and asset, for the feed.
+    pub fn recent_cve_matches(&self, limit: i64) -> Result<Vec<RecentCveMatch>> {
+        let conn = self.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT m.cve_id, c.severity, c.summary, c.product, m.asset_id, a.value, m.created_at
+             FROM cve_matches m
+             JOIN cves c ON c.id = m.cve_id
+             JOIN assets a ON a.id = m.asset_id
+             ORDER BY m.created_at DESC LIMIT ?1",
+        )?;
+        let raws = stmt
+            .query_map([limit], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, String>(5)?,
+                    r.get::<_, String>(6)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        raws.into_iter()
+            .map(|(cve_id, sev, summary, product, aid, val, created)| {
+                Ok(RecentCveMatch {
+                    cve_id,
+                    severity: Severity::from_db(&sev)
+                        .ok_or_else(|| anyhow!("bad severity {sev}"))?,
+                    summary,
+                    product,
+                    asset_id: pid(&aid)?,
+                    asset_value: val,
+                    created_at: pts(&created)?,
+                })
+            })
+            .collect()
+    }
 }
 
 // ---- dashboard aggregate structs --------------------------------------------
@@ -1207,6 +1251,17 @@ pub struct RecentFinding {
     pub title: String,
     pub severity: Severity,
     pub observed_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RecentCveMatch {
+    pub cve_id: String,
+    pub severity: Severity,
+    pub summary: String,
+    pub product: String,
+    pub asset_id: Id,
+    pub asset_value: String,
+    pub created_at: DateTime<Utc>,
 }
 
 // ---- raw row structs --------------------------------------------------------

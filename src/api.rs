@@ -32,6 +32,8 @@ pub fn router(store: Store) -> Router {
         )
         .route("/assets/:id/authorize", post(authorize_asset))
         .route("/assets/:id/scan", post(trigger_scan))
+        .route("/assets/:id/deep-scan", post(deep_scan))
+        .route("/scan/all", post(scan_all))
         .route("/assets/:id/findings", get(asset_findings))
         .route(
             "/assets/:id/schedules",
@@ -99,11 +101,15 @@ async fn overview(State(store): State<Store>) -> ApiResult {
     let recent_scans = store.recent_scans(12)?;
     let recent_alerts = store.recent_alerts(12)?;
     let recent_findings = store.recent_findings(14)?;
+    let fleet_by_product = store.fleet_by_product()?;
+    let recent_cve_matches = store.recent_cve_matches(10)?;
     Ok(Json(json!({
         "counts": counts,
         "recent_scans": recent_scans,
         "recent_alerts": recent_alerts,
         "recent_findings": recent_findings,
+        "fleet_by_product": fleet_by_product,
+        "recent_cve_matches": recent_cve_matches,
     }))
     .into_response())
 }
@@ -321,6 +327,92 @@ async fn trigger_scan(
         _ => StatusCode::OK,
     };
     Ok((code, Json(outcome)).into_response())
+}
+
+/// Run the full appropriate battery of scans on one asset (deep scan).
+async fn deep_scan(State(store): State<Store>, Path(id): Path<Uuid>) -> ApiResult {
+    if store.get_asset(id)?.is_none() {
+        return Ok(not_found("asset"));
+    }
+    let outcomes = scan::run_deep_scan(&store, id).await?;
+    // If the gate refused every scan, surface it as 403 (nothing touched the net).
+    let all_refused = !outcomes.is_empty()
+        && outcomes
+            .iter()
+            .all(|o| o.scan.status == ScanStatus::Refused);
+    let code = if all_refused {
+        StatusCode::FORBIDDEN
+    } else {
+        StatusCode::OK
+    };
+    Ok((code, Json(json!({ "outcomes": outcomes }))).into_response())
+}
+
+#[derive(Deserialize)]
+struct ScanAll {
+    kind: ScanKind,
+    /// If true, run the full battery (deep) on each asset instead of one kind.
+    #[serde(default)]
+    deep: bool,
+    /// Cap on how many authorized assets to scan in one call. Defaults to 50
+    /// (20 for deep) and is hard-capped (500 / 100). A large estate should use
+    /// schedules, not a single call.
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+/// Run a scan across every *authorized* asset, up to the cap — one `kind`, or
+/// the full battery per asset when `deep`. Each scan still passes the gate.
+async fn scan_all(State(store): State<Store>, Json(b): Json<ScanAll>) -> ApiResult {
+    let cap = b
+        .limit
+        .unwrap_or(if b.deep { 20 } else { 50 })
+        .clamp(1, if b.deep { 100 } else { 500 });
+    let active: Vec<_> = store
+        .list_all_assets()?
+        .into_iter()
+        .filter(|a| a.auth_status == AuthStatus::Active)
+        .take(cap)
+        .collect();
+
+    let (mut completed, mut refused, mut failed, mut alerts, mut findings) =
+        (0, 0, 0, 0usize, 0usize);
+    for a in &active {
+        let outcomes = if b.deep {
+            scan::run_deep_scan(&store, a.id).await.unwrap_or_default()
+        } else {
+            match scan::run_scan(&store, a.id, b.kind).await {
+                Ok(o) => vec![o],
+                Err(_) => {
+                    failed += 1;
+                    vec![]
+                }
+            }
+        };
+        for o in &outcomes {
+            match o.scan.status {
+                ScanStatus::Completed => completed += 1,
+                ScanStatus::Refused => refused += 1,
+                ScanStatus::Failed => failed += 1,
+                _ => {}
+            }
+            findings += o.findings.len();
+            if o.alert.is_some() {
+                alerts += 1;
+            }
+        }
+    }
+    Ok(Json(json!({
+        "deep": b.deep,
+        "attempted": active.len(),
+        "completed": completed,
+        "refused": refused,
+        "failed": failed,
+        "alerts": alerts,
+        "findings": findings,
+        "cap": cap,
+    }))
+    .into_response())
 }
 
 async fn get_scan(State(store): State<Store>, Path(id): Path<Uuid>) -> ApiResult {

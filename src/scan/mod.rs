@@ -3,9 +3,12 @@
 //! dropped. Only `ExternalSurface` is implemented so far; the other kinds are
 //! gated and stubbed so the wiring is honest about what runs.
 
+pub mod availability;
 pub mod diff;
 pub mod external;
 pub mod runner;
+pub mod vuln;
+pub mod webhygiene;
 
 use anyhow::Result;
 use chrono::Utc;
@@ -88,22 +91,13 @@ pub async fn run_scan(store: &Store, asset_id: Id, kind: ScanKind) -> Result<Sca
     let drafts = match kind {
         ScanKind::ExternalSurface => external::scan(&target.value, DEFAULT_SCAN_TIMEOUT).await,
         ScanKind::SqlInjection => crate::sqli::scan(&target.value, DEFAULT_SCAN_TIMEOUT).await,
-        ScanKind::Vuln | ScanKind::Availability | ScanKind::WebHygiene => {
-            store.finish_scan(
-                scan_id,
-                ScanStatus::Failed,
-                Some("scanner not yet implemented"),
-            )?;
-            scan.status = ScanStatus::Failed;
-            scan.finished_at = Some(Utc::now());
-            scan.note = Some("scanner not yet implemented".to_string());
-            return Ok(ScanOutcome {
-                scan,
-                findings: vec![],
-                diff: None,
-                alert: None,
-            });
+        ScanKind::Availability => {
+            availability::scan(asset.kind, &target.value, DEFAULT_SCAN_TIMEOUT).await
         }
+        ScanKind::WebHygiene => {
+            webhygiene::scan(store, asset_id, &target.value, DEFAULT_SCAN_TIMEOUT).await
+        }
+        ScanKind::Vuln => vuln::scan(store, asset_id),
     };
 
     let drafts = match drafts {
@@ -163,4 +157,42 @@ pub async fn run_scan(store: &Store, asset_id: Id, kind: ScanKind) -> Result<Sca
         diff: Some(summary),
         alert,
     })
+}
+
+/// The sensible battery of scans for an asset kind. A "deep" scan runs them
+/// all; the choice avoids pointless runs (nmap on a bare URL, SQLi on a host).
+pub fn kinds_for(kind: AssetKind) -> Vec<ScanKind> {
+    match kind {
+        AssetKind::Url => vec![
+            ScanKind::Availability,
+            ScanKind::WebHygiene,
+            ScanKind::SqlInjection,
+            ScanKind::Vuln,
+        ],
+        AssetKind::Domain => vec![
+            ScanKind::ExternalSurface,
+            ScanKind::Availability,
+            ScanKind::WebHygiene,
+            ScanKind::Vuln,
+        ],
+        AssetKind::Host => vec![
+            ScanKind::ExternalSurface,
+            ScanKind::Availability,
+            ScanKind::Vuln,
+        ],
+        AssetKind::CidrRange => vec![ScanKind::ExternalSurface, ScanKind::Vuln],
+    }
+}
+
+/// Run the full appropriate battery of scans on one asset (a deep scan). Each
+/// scan independently passes the authorisation gate.
+pub async fn run_deep_scan(store: &Store, asset_id: Id) -> Result<Vec<ScanOutcome>> {
+    let asset = store
+        .get_asset(asset_id)?
+        .ok_or_else(|| anyhow::anyhow!("asset {asset_id} not found"))?;
+    let mut out = Vec::new();
+    for k in kinds_for(asset.kind) {
+        out.push(run_scan(store, asset_id, k).await?);
+    }
+    Ok(out)
 }
