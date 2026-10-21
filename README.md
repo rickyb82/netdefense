@@ -31,6 +31,51 @@ Variabili d'ambiente: `NETDEFENSE_ADDR` (default `127.0.0.1:8088`),
 `NETDEFENSE_DB` (default `netdefense.db`). Richiede `nmap` installato
 sull'host per lo scan della superficie esterna.
 
+## Prova in locale su macOS (sviluppo)
+
+Prerequisiti (una volta sola):
+
+```sh
+xcode-select --install                 # compilatore C (serve a SQLite bundled / rustls)
+curl https://sh.rustup.rs -sSf | sh    # toolchain Rust (rustup)
+brew install nmap                       # opzionale: per lo scan superficie (la SQLi nativa non serve tool esterni)
+```
+
+Clona, builda e avvia:
+
+```sh
+git clone https://github.com/rickyb82/netdefense && cd netdefense
+cargo run --release                     # avvia il servizio HTTP + gestionale
+# poi apri nel browser:
+open http://127.0.0.1:8088/
+```
+
+Il binario è **autocontenuto**: crea `netdefense.db` nella cartella corrente,
+la UI del gestionale è servita su `/`, nessun servizio esterno richiesto.
+
+Loop di sviluppo (iterare prima del deploy):
+
+```sh
+cargo run                # build debug + avvio, rapido per le modifiche
+cargo test               # tutti i test
+cargo clippy && cargo fmt
+```
+
+Modalità MCP (server dei tool, per collegarlo a Emily o a un client MCP):
+
+```sh
+cargo run --release -- mcp     # parla JSON-RPC su stdin/stdout
+```
+
+I tool Kali (nmap, sqlmap, nuclei, …) sono opzionali: se un binario non è
+installato il tool risponde "not installed", il resto funziona. Su macOS molti
+si installano con Homebrew (`brew install nmap sqlmap nuclei ffuf …`); alcuni
+sono solo Linux/Kali — per quelli conviene l'host di deploy.
+
+> Prova subito, senza installare nulla d'altro: la **SQL injection** (`kind:
+> sql_injection`) e la gestione asset/clienti dal gestionale girano con il solo
+> binario.
+
 ## Esempio di flusso
 
 ```sh
