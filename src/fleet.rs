@@ -163,6 +163,26 @@ pub fn classify(port: u16, proto: &str) -> Option<Exposure> {
     }
 }
 
+/// Clean a batch of asset values for bulk intake: trim, drop empties, dedup
+/// (preserving order), and cap the count so a huge paste can't exhaust memory.
+pub fn clean_values(raw: &[String], cap: usize) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for v in raw {
+        let t = v.trim();
+        if t.is_empty() {
+            continue;
+        }
+        if seen.insert(t.to_string()) {
+            out.push(t.to_string());
+        }
+        if out.len() >= cap {
+            break;
+        }
+    }
+    out
+}
+
 /// Correlate CVEs against device facts: a device is affected when its product
 /// matches a CVE's product and the CVE affects its version. Returns
 /// `(cve, asset_id)` pairs.
@@ -263,6 +283,24 @@ mod tests {
         // Only the 6.49.7 device matches the routeros CVE; no 3CX device present.
         assert_eq!(m.len(), 1);
         assert_eq!(m[0].1, a1);
+    }
+
+    #[test]
+    fn clean_values_trims_dedups_and_caps() {
+        let raw = vec![
+            " 10.0.0.1 ".to_string(),
+            "10.0.0.1".to_string(), // dup
+            "".to_string(),         // empty
+            "host.example".to_string(),
+        ];
+        let out = clean_values(&raw, 100);
+        assert_eq!(
+            out,
+            vec!["10.0.0.1".to_string(), "host.example".to_string()]
+        );
+        // cap enforced
+        let big: Vec<String> = (0..50).map(|i| format!("10.0.0.{i}")).collect();
+        assert_eq!(clean_values(&big, 10).len(), 10);
     }
 
     #[test]

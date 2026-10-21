@@ -23,6 +23,7 @@ pub fn router(store: Store) -> Router {
         .route("/health", get(|| async { "ok" }))
         .route("/clients", post(create_client).get(list_clients))
         .route("/clients/:id/assets", post(add_asset).get(list_assets))
+        .route("/clients/:id/assets/bulk", post(bulk_add_assets))
         .route("/assets/:id", get(get_asset))
         .route("/assets/:id/authorize", post(authorize_asset))
         .route("/assets/:id/scan", post(trigger_scan))
@@ -140,6 +141,48 @@ async fn add_asset(
 
 async fn list_assets(State(store): State<Store>, Path(client_id): Path<Uuid>) -> ApiResult {
     Ok(Json(store.list_assets(client_id)?).into_response())
+}
+
+#[derive(Deserialize)]
+struct BulkAssets {
+    kind: AssetKind,
+    /// One value per device (host / domain / url / cidr). Trimmed, de-duplicated
+    /// and capped server-side.
+    values: Vec<String>,
+}
+
+/// Add many devices at once (for a large estate). All start Pending — scanning
+/// still requires per-asset authorization.
+async fn bulk_add_assets(
+    State(store): State<Store>,
+    Path(client_id): Path<Uuid>,
+    Json(b): Json<BulkAssets>,
+) -> ApiResult {
+    if store.get_client(client_id)?.is_none() {
+        return Ok(not_found("client"));
+    }
+    let values = crate::fleet::clean_values(&b.values, 10_000);
+    let now = Utc::now();
+    for v in &values {
+        let asset = Asset {
+            id: Uuid::new_v4(),
+            client_id,
+            kind: b.kind,
+            value: v.clone(),
+            auth_status: AuthStatus::Pending,
+            authorized_until: None,
+            window_start: None,
+            window_end: None,
+            roe_reference: None,
+            created_at: now,
+        };
+        store.insert_asset(&asset)?;
+    }
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({ "added": values.len(), "received": b.values.len() })),
+    )
+        .into_response())
 }
 
 async fn get_asset(State(store): State<Store>, Path(id): Path<Uuid>) -> ApiResult {
