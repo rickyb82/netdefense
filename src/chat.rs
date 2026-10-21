@@ -38,11 +38,14 @@ impl ChatConfig {
             model: std::env::var("NETDEFENSE_LLM_MODEL")
                 .ok()
                 .filter(|s| !s.is_empty()),
+            // Generous cap so multi-tool tasks run to completion ("let it work");
+            // raise/lower with NETDEFENSE_LLM_MAX_ROUNDS. The wrap-up only kicks
+            // in if this is ever reached, so the reply is still never empty.
             max_rounds: std::env::var("NETDEFENSE_LLM_MAX_ROUNDS")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .filter(|n| *n > 0)
-                .unwrap_or(6),
+                .unwrap_or(40),
         }
     }
 }
@@ -165,6 +168,76 @@ pub struct ChatReply {
     pub reply: String,
     pub tool_log: Vec<Value>,
     pub model: String,
+    pub usage: Value,
+}
+
+/// Token usage accumulated across the LLM calls of one turn.
+#[derive(Default, Clone, Copy)]
+struct Usage {
+    prompt: u64,
+    completion: u64,
+    total: u64,
+}
+impl Usage {
+    fn add(&mut self, v: &Value) {
+        if let Some(u) = v.get("usage") {
+            self.prompt += u.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(0);
+            self.completion += u
+                .get("completion_tokens")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+            self.total += u.get("total_tokens").and_then(Value::as_u64).unwrap_or(0);
+        }
+    }
+    fn json(&self) -> Value {
+        json!({ "prompt": self.prompt, "completion": self.completion, "total": self.total })
+    }
+}
+
+/// Short preview of a tool's output for the UI (so the user can expand what a
+/// tool returned without flooding the chat).
+fn preview(text: &str, max: usize) -> String {
+    let t: String = text.chars().take(max).collect();
+    if text.chars().count() > max {
+        format!("{t}…")
+    } else {
+        t
+    }
+}
+
+/// A final completion with the tools removed, to force a textual answer when
+/// the model stopped after tool calls without producing one.
+async fn final_answer(
+    client: &reqwest::Client,
+    url: &str,
+    model: &str,
+    temp: f64,
+    messages: &[Value],
+    usage: &mut Usage,
+) -> String {
+    let mut msgs = messages.to_vec();
+    msgs.push(json!({
+        "role": "user",
+        "content": "Riepiloga in italiano, in modo chiaro e operativo, il risultato usando i dati dei tool qui sopra."
+    }));
+    let body = json!({ "model": model, "messages": msgs, "temperature": temp, "stream": false });
+    let Ok(resp) = client.post(url).json(&body).send().await else {
+        return String::new();
+    };
+    let Ok(resp) = resp.error_for_status() else {
+        return String::new();
+    };
+    let Ok(v) = resp.json::<Value>().await else {
+        return String::new();
+    };
+    usage.add(&v);
+    v.get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("content"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
 }
 
 /// Run one assistant turn: an agentic loop that calls the local model, executes
@@ -189,6 +262,7 @@ pub async fn run(store: &Store, cfg: &ChatConfig, req: ChatRequest) -> Result<Ch
     let mut messages = vec![system_prompt()];
     messages.extend(req.messages);
     let mut tool_log = Vec::new();
+    let mut usage = Usage::default();
 
     for _ in 0..cfg.max_rounds {
         let body = json!({
@@ -208,6 +282,7 @@ pub async fn run(store: &Store, cfg: &ChatConfig, req: ChatRequest) -> Result<Ch
             .error_for_status()
             .map_err(|e| anyhow!("il server LLM ha risposto con errore: {e}"))?;
         let v: Value = resp.json().await?;
+        usage.add(&v);
         let msg = v
             .get("choices")
             .and_then(|c| c.get(0))
@@ -227,11 +302,15 @@ pub async fn run(store: &Store, cfg: &ChatConfig, req: ChatRequest) -> Result<Ch
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_string();
-            return Ok(ChatReply {
-                reply,
-                tool_log,
-                model,
-            });
+            if !reply.trim().is_empty() {
+                return Ok(ChatReply {
+                    reply,
+                    tool_log,
+                    model,
+                    usage: usage.json(),
+                });
+            }
+            break; // model produced nothing → force a final answer below
         }
 
         // Record the assistant's tool-call message, then run each tool.
@@ -256,7 +335,9 @@ pub async fn run(store: &Store, cfg: &ChatConfig, req: ChatRequest) -> Result<Ch
                 .unwrap_or_else(|| json!({}));
 
             let (text, is_err) = crate::mcp::exec_tool(store, &name, &args).await;
-            tool_log.push(json!({ "tool": name, "args": args, "ok": !is_err }));
+            tool_log.push(json!({
+                "tool": name, "args": args, "ok": !is_err, "result": preview(&text, 800)
+            }));
             messages.push(json!({
                 "role": "tool",
                 "tool_call_id": id,
@@ -265,10 +346,19 @@ pub async fn run(store: &Store, cfg: &ChatConfig, req: ChatRequest) -> Result<Ch
         }
     }
 
+    // Wrap-up: one tool-less call so the model turns the tool results into a
+    // textual answer — the reply is never empty.
+    let reply = final_answer(&client, &url, &model, temp, &messages, &mut usage).await;
+    let reply = if reply.trim().is_empty() {
+        "Operazioni completate con i tool, ma il modello non ha prodotto un testo finale. Riprova o usa un modello con buon supporto al tool-calling.".to_string()
+    } else {
+        reply
+    };
     Ok(ChatReply {
-        reply: "Ho raggiunto il limite di passaggi tool senza una risposta finale. Riprova o riformula.".to_string(),
+        reply,
         tool_log,
         model,
+        usage: usage.json(),
     })
 }
 
@@ -314,13 +404,14 @@ pub async fn run_stream(store: &Store, cfg: &ChatConfig, req: ChatRequest, tx: S
 
     let mut messages = vec![system_prompt()];
     messages.extend(req.messages);
-    let mut used_tools = false;
+    let mut usage = Usage::default();
     let mut final_reply = String::new();
 
     for _ in 0..cfg.max_rounds {
         let body = json!({
             "model": model, "messages": messages, "tools": tools,
-            "tool_choice": "auto", "temperature": temp, "stream": true
+            "tool_choice": "auto", "temperature": temp, "stream": true,
+            "stream_options": {"include_usage": true}
         });
         let resp = match client.post(&url).json(&body).send().await {
             Ok(r) => match r.error_for_status() {
@@ -360,6 +451,7 @@ pub async fn run_stream(store: &Store, cfg: &ChatConfig, req: ChatRequest, tx: S
                 let Ok(v) = serde_json::from_str::<Value>(data) else {
                     continue;
                 };
+                usage.add(&v);
                 let delta = &v["choices"][0]["delta"];
                 if let Some(c) = delta.get("content").and_then(Value::as_str) {
                     if !c.is_empty() {
@@ -400,7 +492,6 @@ pub async fn run_stream(store: &Store, cfg: &ChatConfig, req: ChatRequest, tx: S
         }
 
         // This round routed to tools: tell the UI to drop any partial tokens.
-        used_tools = true;
         let _ = tx.send(json!({"type":"reset"})).await;
         let assistant_calls: Vec<Value> = calls
             .iter()
@@ -416,19 +507,30 @@ pub async fn run_stream(store: &Store, cfg: &ChatConfig, req: ChatRequest, tx: S
                 .await;
             let (text, is_err) = crate::mcp::exec_tool(store, &c.name, &args).await;
             let _ = tx
-                .send(json!({"type":"tool_result","name":c.name,"ok":!is_err}))
+                .send(json!({"type":"tool_result","name":c.name,"ok":!is_err,"result":preview(&text,800)}))
                 .await;
             messages.push(json!({"role":"tool","tool_call_id":c.id,"content":truncate(text)}));
         }
     }
 
-    if final_reply.trim().is_empty() && used_tools {
-        final_reply =
-            "Operazioni completate con i tool. (Il modello non ha prodotto un testo finale.)"
-                .to_string();
+    if final_reply.trim().is_empty() {
+        // Wrap-up: a tool-less call forces a textual answer (emitted in one go).
+        let wrap = final_answer(&client, &url, &model, temp, &messages, &mut usage).await;
+        if !wrap.trim().is_empty() {
+            let _ = tx.send(json!({"type":"reset"})).await;
+            let _ = tx.send(json!({"type":"token","text": wrap})).await;
+            final_reply = wrap;
+        }
     }
+    if final_reply.trim().is_empty() {
+        final_reply = "Operazioni completate con i tool, ma il modello non ha prodotto un testo finale. Riprova o usa un modello con buon supporto al tool-calling.".to_string();
+        let _ = tx
+            .send(json!({"type":"token","text": final_reply.clone()}))
+            .await;
+    }
+    let _ = tx.send(json!({"type":"usage","usage":usage.json()})).await;
     let _ = tx
-        .send(json!({"type":"done","reply":final_reply,"used_tools":used_tools}))
+        .send(json!({"type":"done","reply":final_reply,"usage":usage.json()}))
         .await;
 }
 

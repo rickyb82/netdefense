@@ -153,6 +153,12 @@
   .bubble.assistant{align-self:flex-start;background:var(--panel-2);border:1px solid var(--line);border-bottom-left-radius:4px;}
   .bubble.tools{align-self:flex-start;font-family:var(--mono);font-size:11px;color:var(--muted);background:transparent;border:1px dashed var(--line);padding:6px 10px;}
   .bubble.tools .ok{color:var(--ok);} .bubble.tools .no{color:var(--danger);}
+  details.tools{align-self:flex-start;max-width:92%;font-family:var(--mono);font-size:11px;color:var(--muted);background:transparent;border:1px dashed var(--line);border-radius:8px;padding:5px 10px;}
+  details.tools summary{cursor:pointer;list-style:none;} details.tools summary::-webkit-details-marker{display:none;}
+  details.tools .ok{color:var(--ok);} details.tools .no{color:var(--danger);}
+  details.tools .lbl{color:var(--faint);margin-top:5px;}
+  details.tools pre{white-space:pre-wrap;word-break:break-word;margin:2px 0 0;color:var(--ink-dim);max-height:200px;overflow:auto;}
+  .chat-usage{padding:6px 16px;font-size:11px;color:var(--faint);border-top:1px solid var(--line);font-family:var(--mono);}
   .chat-input{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--line);background:var(--bg-2);}
   .chat-input input{flex:1 1 auto;}
   .chat-empty{color:var(--muted);font-size:13px;text-align:center;padding:22px 8px;}
@@ -342,6 +348,7 @@
   </div>
   <div class="chat-status" id="chatStatus">verifica server LLM…</div>
   <div class="chat-msgs" id="chatMsgs"><div class="chat-empty">Chiedi all'assistente di operare sulla piattaforma: può usare i tool MCP (clienti, device, autorizzazioni, scansioni, CVE e i tool Kali). Es.: «aggiungi il cliente ACME e un device host 203.0.113.9», «scansiona in profondità l'ultimo device».</div></div>
+  <div class="chat-usage" id="chatUsage" hidden></div>
   <form class="chat-input" id="chatForm">
     <input id="chatText" placeholder="Scrivi un messaggio…" autocomplete="off" />
     <button class="btn" type="submit" id="chatSendBtn">Invia</button>
@@ -864,11 +871,18 @@ async function loadChatStatus(){
     else { el.className="chat-status err"; el.innerHTML=`<b>non raggiungibile</b> · ${esc(s.url||chatCfg.base||"")} — avvia LM Studio (1234) o Ollama (11434), o indica un endpoint.`; }
   }catch{ el.className="chat-status err"; el.textContent="Stato server LLM non disponibile."; }
 }
+function toolBubble(m){
+  const mark=(m.ok===null||m.ok===undefined)?"…":(m.ok?'<span class="ok">✓</span>':'<span class="no">✗</span>');
+  const args=(m.args!=null)?`<div class="lbl">argomenti</div><pre>${esc(JSON.stringify(m.args))}</pre>`:"";
+  const res=m.result?`<div class="lbl">output</div><pre>${esc(m.result)}</pre>`:"";
+  return `<details class="tools"><summary>🔧 ${esc(m.name||"tool")} ${mark}</summary>${args}${res}</details>`;
+}
+function setUsage(u){ if(!u) return; const el=$("#chatUsage"); el.hidden=false; el.textContent=`token — prompt ${u.prompt||0} · output ${u.completion||0} · totale ${u.total||0}`; }
 function renderChat(){
   const box=$("#chatMsgs");
   if(!chat.msgs.length){ box.innerHTML=CHAT_EMPTY; return; }
   box.innerHTML=chat.msgs.map((m)=> m.role==="tools"
-    ? `<div class="bubble tools">🔧 ${m.content}</div>`
+    ? toolBubble(m)
     : `<div class="bubble ${m.role==="user"?"user":"assistant"}">${esc(m.content)}</div>`
   ).join("");
   box.scrollTop=box.scrollHeight;
@@ -899,8 +913,10 @@ $("#chatForm").addEventListener("submit",async (e)=>{
         let ev; try{ ev=JSON.parse(data); }catch{ continue; }
         if(ev.type==="token"){ bubble.content+=ev.text; renderChat(); }
         else if(ev.type==="reset"){ bubble.content=""; renderChat(); }
-        else if(ev.type==="tool"){ chat.msgs.splice(chat.msgs.indexOf(bubble),0,{role:"tools",content:"usa "+esc(ev.name)+"…"}); changed=true; renderChat(); }
-        else if(ev.type==="done"){ if(!bubble.content && ev.reply) bubble.content=ev.reply; if(ev.used_tools) changed=true; renderChat(); }
+        else if(ev.type==="tool"){ chat.msgs.splice(chat.msgs.indexOf(bubble),0,{role:"tools",name:ev.name,args:ev.args,ok:null,result:null}); changed=true; renderChat(); }
+        else if(ev.type==="tool_result"){ for(let i=chat.msgs.length-1;i>=0;i--){ const m=chat.msgs[i]; if(m.role==="tools"&&m.name===ev.name&&m.ok===null){ m.ok=ev.ok; m.result=ev.result; break; } } renderChat(); }
+        else if(ev.type==="usage"){ setUsage(ev.usage); }
+        else if(ev.type==="done"){ if(ev.usage) setUsage(ev.usage); if(!bubble.content && ev.reply) bubble.content=ev.reply; renderChat(); }
         else if(ev.type==="error"){ bubble.content="Errore: "+(ev.message||"server LLM"); renderChat(); }
       }
     }
@@ -909,9 +925,8 @@ $("#chatForm").addEventListener("submit",async (e)=>{
     // fallback: richiesta non-streaming
     const res=await apiRaw("POST","/chat",payload);
     if(res.data&&typeof res.data.reply==="string"){
-      if(res.data.tool_log&&res.data.tool_log.length){ changed=true;
-        const names=res.data.tool_log.map((x)=>`<span class="${x.ok?"ok":"no"}">${esc(x.tool)}</span>`).join(", ");
-        chat.msgs.splice(chat.msgs.indexOf(bubble),0,{role:"tools",content:"tool usati: "+names}); }
+      (res.data.tool_log||[]).forEach((x)=>{ changed=true; chat.msgs.splice(chat.msgs.indexOf(bubble),0,{role:"tools",name:x.tool,args:x.args,ok:x.ok,result:x.result}); });
+      if(res.data.usage) setUsage(res.data.usage);
       bubble.content=res.data.reply||"(nessuna risposta)";
     } else bubble.content="Errore: "+((res.data&&res.data.error)||("HTTP "+res.status))+". Controlla il server LLM (LM Studio 1234 / Ollama 11434).";
     renderChat();
