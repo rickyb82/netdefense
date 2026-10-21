@@ -1,0 +1,24 @@
+# Ready to start on macOS (Docker Desktop):
+#   docker compose up --build
+# then open http://127.0.0.1:8088/
+#
+# First build pulls the Rust and Kali base images and installs the tools
+# (several GB, a few minutes). Later `docker compose up` starts instantly.
+services:
+  netdefense:
+    build: .
+    image: netdefense:local
+    container_name: netdefense
+    # Bound to localhost only — the console is not exposed on the network.
+    ports:
+      - "127.0.0.1:8088:8088"
+    # SQLite DB persists across restarts/rebuilds.
+    volumes:
+      - nd-data:/data
+    restart: unless-stopped
+    # On Apple Silicon this runs native arm64. If a Kali tool is missing for
+    # arm64, uncomment to run the amd64 image under emulation instead:
+    # platform: linux/amd64
+
+volumes:
+  nd-data:

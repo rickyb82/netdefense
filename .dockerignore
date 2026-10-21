@@ -1,0 +1,6 @@
+target
+**/target
+.git
+*.db
+*.db-*
+*.md

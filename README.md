@@ -31,7 +31,31 @@ Variabili d'ambiente: `NETDEFENSE_ADDR` (default `127.0.0.1:8088`),
 `NETDEFENSE_DB` (default `netdefense.db`). Richiede `nmap` installato
 sull'host per lo scan della superficie esterna.
 
-## Prova in locale su macOS (sviluppo)
+## Docker — pronto all'avvio sul Mac (con i tool Kali inclusi)
+
+Richiede solo **Docker Desktop**. Un comando:
+
+```sh
+git clone https://github.com/rickyb82/netdefense && cd netdefense
+docker compose up --build
+# poi apri: http://127.0.0.1:8088/
+```
+
+L'immagine è **multi-stage**: builda il binario netdefense (Rust) e lo mette su
+una base **Kali** con installati i binari dei tool (nmap, sqlmap, nuclei, …), così
+i wrapper funzionano davvero. Il DB SQLite persiste nel volume `nd-data`; la
+console è esposta **solo su 127.0.0.1**.
+
+- Primo build: scarica le immagini Rust+Kali e installa i tool (alcuni GB, qualche
+  minuto). Gli avvii successivi (`docker compose up`) sono immediati.
+- Apple Silicon: gira in **arm64** nativo; se un tool Kali manca per arm64,
+  scommenta `platform: linux/amd64` in `docker-compose.yml` (più lento, via
+  emulazione, ma massima copertura tool).
+- Modalità MCP nel container: `docker compose run --rm -i netdefense netdefense mcp`.
+- Un tool il cui binario non è nell'immagine risponde "not installed"; il resto
+  funziona (la lista pacchetti è modificabile nel `Dockerfile`).
+
+## Prova in locale su macOS (sviluppo, senza Docker)
 
 Prerequisiti (una volta sola):
 
