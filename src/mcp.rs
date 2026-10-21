@@ -10,6 +10,7 @@
 //! subprocesses via kali-mcp's runner.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use chrono::Utc;
 use serde_json::{json, Value};
@@ -135,6 +136,18 @@ fn native_tools() -> Vec<Value> {
             "inputSchema": obj(json!({ "asset_id": {"type":"string"} }), &["asset_id"]) }),
         json!({ "name": "nd_alerts", "description": "netdefense: list all alerts.",
             "inputSchema": obj(json!({}), &[]) }),
+        json!({ "name": "nd_overview", "description": "netdefense: rollup counts (devices by auth status, alerts/findings by severity, scans by status, CVE archive size and CVE↔device matches).",
+            "inputSchema": obj(json!({}), &[]) }),
+        json!({ "name": "nd_cve_import", "description": "netdefense: import CVEs from NVD for a product (keyword token such as routeros, 3cx, junos, huawei), or the whole fleet if omitted, then correlate. Can take a while.",
+            "inputSchema": obj(json!({ "product": {"type":"string","description":"optional product/vendor, e.g. routeros or mikrotik"} }), &[]) }),
+        json!({ "name": "nd_cve_correlate", "description": "netdefense: correlate stored CVEs against device facts; returns how many new alerts were raised.",
+            "inputSchema": obj(json!({}), &[]) }),
+        json!({ "name": "nd_cve_list", "description": "netdefense: how many CVEs are stored and the most recent ids.",
+            "inputSchema": obj(json!({}), &[]) }),
+        json!({ "name": "nd_set_facts", "description": "netdefense: record a device's vendor/product/version (product is a fleet key like routeros), then correlate CVEs — use when you learn a device's version.",
+            "inputSchema": obj(json!({ "asset_id": {"type":"string"}, "vendor": {"type":"string"}, "product": {"type":"string"}, "version": {"type":"string"} }), &["asset_id","vendor","product"]) }),
+        json!({ "name": "web_fetch", "description": "Fetch a web page over HTTP(S) and return its text (truncated). Use to look up CVE details, vendor advisories or other pages on the internet.",
+            "inputSchema": obj(json!({ "url": {"type":"string"}, "max_chars": {"type":"integer"} }), &["url"]) }),
     ]
 }
 
@@ -199,6 +212,12 @@ async fn call_native(store: &Store, name: &str, args: &Value) -> Option<Result<S
         "nd_findings" => Some(nd_findings(store, args)),
         "nd_alerts" => Some(nd_alerts(store)),
         "nd_scan" => Some(nd_scan(store, args).await),
+        "nd_overview" => Some(nd_overview(store)),
+        "nd_cve_correlate" => Some(nd_cve_correlate(store)),
+        "nd_cve_list" => Some(nd_cve_list(store)),
+        "nd_set_facts" => Some(nd_set_facts(store, args)),
+        "nd_cve_import" => Some(nd_cve_import(store, args).await),
+        "web_fetch" => Some(web_fetch(args).await),
         _ => None,
     }
 }
@@ -293,6 +312,163 @@ fn nd_findings(store: &Store, a: &Value) -> Result<String, String> {
 
 fn nd_alerts(store: &Store) -> Result<String, String> {
     as_json(&store.list_alerts().map_err(|e| e.to_string())?)
+}
+
+fn nd_overview(store: &Store) -> Result<String, String> {
+    as_json(&store.overview_counts().map_err(|e| e.to_string())?)
+}
+
+fn nd_cve_correlate(store: &Store) -> Result<String, String> {
+    let n = crate::fleet::run_correlation(store).map_err(|e| e.to_string())?;
+    Ok(json!({ "alerts_raised": n }).to_string())
+}
+
+fn nd_cve_list(store: &Store) -> Result<String, String> {
+    let cves = store.list_cves().map_err(|e| e.to_string())?;
+    let recent: Vec<&str> = cves.iter().take(30).map(|c| c.id.as_str()).collect();
+    Ok(json!({ "count": cves.len(), "recent": recent }).to_string())
+}
+
+fn nd_set_facts(store: &Store, a: &Value) -> Result<String, String> {
+    let asset_id = guuid(a, "asset_id")?;
+    if store
+        .get_asset(asset_id)
+        .map_err(|e| e.to_string())?
+        .is_none()
+    {
+        return Err("asset not found".into());
+    }
+    let facts = crate::fleet::DeviceFacts {
+        asset_id,
+        vendor: greq(a, "vendor")?,
+        product: map_product(&greq(a, "product")?),
+        version: gs(a, "version"),
+        mgmt: vec![],
+    };
+    store
+        .upsert_device_facts(&facts)
+        .map_err(|e| e.to_string())?;
+    let raised = crate::fleet::run_correlation(store).map_err(|e| e.to_string())?;
+    as_json(&json!({ "facts": facts, "alerts_raised": raised }))
+}
+
+/// Map a user-supplied product/vendor to a fleet CPE token (so correlation
+/// keys line up), falling back to the lowercased input.
+fn map_product(input: &str) -> String {
+    for p in crate::fleet::catalog() {
+        if p.key.eq_ignore_ascii_case(input)
+            || p.cpe_token.eq_ignore_ascii_case(input)
+            || p.vendor.eq_ignore_ascii_case(input)
+        {
+            return p.cpe_token.to_string();
+        }
+    }
+    input.to_ascii_lowercase()
+}
+
+async fn nd_cve_import(store: &Store, a: &Value) -> Result<String, String> {
+    let product = gs(a, "product").map(|p| map_product(&p));
+    let cfg = crate::nvd::NvdConfig::from_env();
+    let fetcher = crate::nvd::ReqwestFetcher::new().map_err(|e| e.to_string())?;
+    let s = crate::nvd::import(store, &cfg, &fetcher, product.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
+    let total = store.list_cves().map(|c| c.len()).unwrap_or(0);
+    Ok(json!({
+        "imported": s.imported,
+        "alerts_raised": s.alerts_raised,
+        "cves_total": total,
+        "product": product,
+    })
+    .to_string())
+}
+
+async fn web_fetch(a: &Value) -> Result<String, String> {
+    let url = greq(a, "url")?;
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("url must start with http:// or https://".into());
+    }
+    let max = a
+        .get("max_chars")
+        .and_then(Value::as_u64)
+        .unwrap_or(4000)
+        .clamp(200, 20000) as usize;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .user_agent(concat!(
+            env!("CARGO_PKG_NAME"),
+            "/",
+            env!("CARGO_PKG_VERSION")
+        ))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
+    let status = resp.status().as_u16();
+    let ctype = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let body = resp.text().await.unwrap_or_default();
+    let text = if ctype.contains("html") {
+        strip_html(&body)
+    } else {
+        body
+    };
+    Ok(format!(
+        "HTTP {status} ({url})\n{}",
+        truncate_chars(&text, max)
+    ))
+}
+
+/// Remove tags (and the text inside <script>/<style>) and collapse whitespace —
+/// panic-safe, char-based, good enough to feed a page's text to the model.
+fn strip_html(s: &str) -> String {
+    let mut out = String::with_capacity(s.len().min(64 * 1024));
+    let mut in_tag = false;
+    let mut skip_to: Option<&'static str> = None;
+    let lower = s.to_ascii_lowercase();
+    let mut idx = 0; // byte index tracked in parallel for the lowercase scan
+    for ch in s.chars() {
+        let here = &lower[idx..];
+        idx += ch.len_utf8();
+        if let Some(close) = skip_to {
+            if here.starts_with(close) {
+                skip_to = None;
+                in_tag = true; // we're at the '<' of the closing tag
+            }
+            continue;
+        }
+        if ch == '<' {
+            if here.starts_with("<script") {
+                skip_to = Some("</script");
+                continue;
+            }
+            if here.starts_with("<style") {
+                skip_to = Some("</style");
+                continue;
+            }
+            in_tag = true;
+            continue;
+        }
+        if ch == '>' {
+            in_tag = false;
+            continue;
+        }
+        if !in_tag {
+            out.push(ch);
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn truncate_chars(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let t: String = s.chars().take(max).collect();
+    format!("{t}\n…[troncato]")
 }
 
 async fn nd_scan(store: &Store, a: &Value) -> Result<String, String> {

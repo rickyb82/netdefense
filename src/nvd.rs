@@ -262,6 +262,38 @@ pub async fn poll_once<F: Fetcher>(
     })
 }
 
+/// On-demand import: pull CVEs from NVD for one product (by keyword token) or,
+/// if `product` is None, the whole fleet, then correlate. Reuses the same
+/// incremental windowing/paging as the scheduled poller.
+pub async fn import<F: Fetcher>(
+    store: &Store,
+    cfg: &NvdConfig,
+    fetcher: &F,
+    product: Option<&str>,
+) -> Result<PollSummary> {
+    let now = Utc::now();
+    let mut imported = 0usize;
+    match product {
+        Some(tok) => {
+            imported += poll_product(store, cfg, fetcher, tok, now).await?;
+        }
+        None => {
+            for p in crate::fleet::catalog() {
+                match poll_product(store, cfg, fetcher, p.cpe_token, now).await {
+                    Ok(n) => imported += n,
+                    Err(e) => eprintln!("netdefense nvd import: {} failed: {e}", p.key),
+                }
+                tokio::time::sleep(Duration::from_secs(cfg.request_delay_secs)).await;
+            }
+        }
+    }
+    let alerts_raised = crate::fleet::run_correlation(store)?;
+    Ok(PollSummary {
+        imported,
+        alerts_raised,
+    })
+}
+
 pub fn spawn(store: Store, cfg: NvdConfig) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let fetcher = match ReqwestFetcher::new() {
