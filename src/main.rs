@@ -20,6 +20,7 @@ mod scan;
 mod scheduler;
 mod snmp;
 mod snmp_poll;
+mod sqli;
 mod store;
 mod ui;
 mod voip;

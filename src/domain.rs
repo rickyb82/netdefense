@@ -87,12 +87,14 @@ pub enum ScanKind {
     Vuln,
     Availability,
     WebHygiene,
+    SqlInjection,
 }
 str_enum!(ScanKind {
     ExternalSurface => "external_surface",
     Vuln => "vuln",
     Availability => "availability",
     WebHygiene => "web_hygiene",
+    SqlInjection => "sql_injection",
 });
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
