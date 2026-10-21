@@ -193,6 +193,12 @@ impl Store {
             );
             CREATE INDEX IF NOT EXISTS idx_assets_client ON assets(client_id);
             CREATE INDEX IF NOT EXISTS idx_scans_asset ON scans(asset_id);
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+                role       TEXT NOT NULL,
+                content    TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
             CREATE INDEX IF NOT EXISTS idx_findings_scan ON findings(scan_id);
             CREATE INDEX IF NOT EXISTS idx_scans_asset_kind ON scans(asset_id, kind, status, started_at);
             CREATE INDEX IF NOT EXISTS idx_schedules_due ON schedules(next_run_at);
@@ -1228,6 +1234,37 @@ impl Store {
                 })
             })
             .collect()
+    }
+
+    // ---- chat transcript (persisted so the assistant reopens with history) --
+
+    pub fn insert_chat_message(&self, role: &str, content: &str) -> Result<()> {
+        self.lock()?.execute(
+            "INSERT INTO chat_messages (role, content, created_at) VALUES (?1,?2,?3)",
+            params![role, content, ts(&Utc::now())],
+        )?;
+        Ok(())
+    }
+
+    /// The last `limit` chat messages, in chronological order.
+    pub fn list_chat_messages(&self, limit: i64) -> Result<Vec<(String, String)>> {
+        let conn = self.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT role, content FROM
+                (SELECT seq, role, content FROM chat_messages ORDER BY seq DESC LIMIT ?1)
+             ORDER BY seq ASC",
+        )?;
+        let rows = stmt
+            .query_map([limit], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    pub fn clear_chat_messages(&self) -> Result<()> {
+        self.lock()?.execute("DELETE FROM chat_messages", [])?;
+        Ok(())
     }
 }
 

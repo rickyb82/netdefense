@@ -32,6 +32,12 @@ pub fn router(store: Store) -> Router {
         .route("/chat", post(chat_send))
         .route("/chat/stream", post(chat_stream))
         .route("/chat/status", get(chat_status))
+        .route(
+            "/chat/history",
+            get(chat_history)
+                .post(chat_history_add)
+                .delete(chat_history_clear),
+        )
         .route("/clients", post(create_client).get(list_clients))
         .route("/clients/:id/assets", post(add_asset).get(list_assets))
         .route("/clients/:id/assets/bulk", post(bulk_add_assets))
@@ -129,6 +135,33 @@ struct StatusQuery {
 async fn chat_status(Query(q): Query<StatusQuery>) -> ApiResult {
     let cfg = crate::chat::ChatConfig::from_env();
     Ok(Json(crate::chat::status(&cfg, q.base_url.as_deref()).await).into_response())
+}
+
+// ---- chat transcript persistence ----
+
+async fn chat_history(State(store): State<Store>) -> ApiResult {
+    let msgs: Vec<_> = store
+        .list_chat_messages(200)?
+        .into_iter()
+        .map(|(role, content)| json!({ "role": role, "content": content }))
+        .collect();
+    Ok(Json(msgs).into_response())
+}
+
+#[derive(Deserialize)]
+struct ChatMsgIn {
+    role: String,
+    content: String,
+}
+
+async fn chat_history_add(State(store): State<Store>, Json(b): Json<ChatMsgIn>) -> ApiResult {
+    store.insert_chat_message(&b.role, &b.content)?;
+    Ok((StatusCode::CREATED, Json(json!({ "ok": true }))).into_response())
+}
+
+async fn chat_history_clear(State(store): State<Store>) -> ApiResult {
+    store.clear_chat_messages()?;
+    Ok(Json(json!({ "cleared": true })).into_response())
 }
 
 /// Streaming chat: Server-Sent Events, one JSON object per event (token / tool

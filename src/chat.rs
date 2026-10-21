@@ -69,6 +69,12 @@ pub struct ChatRequest {
     /// Optional OpenAI-compatible base URL override — lets the UI point at an
     /// external LM Studio or Ollama server instead of the configured default.
     pub base_url: Option<String>,
+    /// Optional sampling temperature (clamped to [0, 2]); defaults to 0.2.
+    pub temperature: Option<f64>,
+}
+
+fn pick_temp(t: Option<f64>) -> f64 {
+    t.unwrap_or(0.2).clamp(0.0, 2.0)
 }
 
 /// Effective base URL: the request override (if non-empty) else the config.
@@ -159,6 +165,7 @@ pub struct ChatReply {
 pub async fn run(store: &Store, cfg: &ChatConfig, req: ChatRequest) -> Result<ChatReply> {
     let client = client()?;
     let base = pick_base(cfg, req.base_url.as_deref());
+    let temp = pick_temp(req.temperature);
     let model = match req
         .model
         .filter(|s| !s.trim().is_empty())
@@ -182,7 +189,7 @@ pub async fn run(store: &Store, cfg: &ChatConfig, req: ChatRequest) -> Result<Ch
             "messages": messages,
             "tools": tools,
             "tool_choice": "auto",
-            "temperature": 0.2,
+            "temperature": temp,
             "stream": false
         });
         let resp = client
@@ -280,6 +287,7 @@ pub async fn run_stream(store: &Store, cfg: &ChatConfig, req: ChatRequest, tx: S
         }
     };
     let base = pick_base(cfg, req.base_url.as_deref());
+    let temp = pick_temp(req.temperature);
     let model = match req
         .model
         .clone()
@@ -305,7 +313,7 @@ pub async fn run_stream(store: &Store, cfg: &ChatConfig, req: ChatRequest, tx: S
     for _ in 0..cfg.max_rounds {
         let body = json!({
             "model": model, "messages": messages, "tools": tools,
-            "tool_choice": "auto", "temperature": 0.2, "stream": true
+            "tool_choice": "auto", "temperature": temp, "stream": true
         });
         let resp = match client.post(&url).json(&body).send().await {
             Ok(r) => match r.error_for_status() {
