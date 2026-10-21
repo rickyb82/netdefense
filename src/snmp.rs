@@ -108,7 +108,7 @@ fn first_dotted(s: &str) -> Option<String> {
 
 fn version_for(product: &str, sysdescr: &str) -> Option<String> {
     match product {
-        "routeros" => version_after(sysdescr, "RouterOS "),
+        "routeros" => version_after(sysdescr, "RouterOS ").or_else(|| first_dotted(sysdescr)),
         "junos" => version_after(sysdescr, "JUNOS ").or_else(|| version_after(sysdescr, "Junos: ")),
         "huawei" => version_after(sysdescr, "Version "),
         "fritzos" => {

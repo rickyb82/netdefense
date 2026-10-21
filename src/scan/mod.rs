@@ -89,7 +89,9 @@ pub async fn run_scan(store: &Store, asset_id: Id, kind: ScanKind) -> Result<Sca
 
     // --- dispatch to the scanner ---
     let drafts = match kind {
-        ScanKind::ExternalSurface => external::scan(&target.value, DEFAULT_SCAN_TIMEOUT).await,
+        ScanKind::ExternalSurface => {
+            external::scan(store, asset_id, &target.value, DEFAULT_SCAN_TIMEOUT).await
+        }
         ScanKind::SqlInjection => crate::sqli::scan(&target.value, DEFAULT_SCAN_TIMEOUT).await,
         ScanKind::Availability => {
             availability::scan(asset.kind, &target.value, DEFAULT_SCAN_TIMEOUT).await
