@@ -63,6 +63,7 @@
   .stage-head .u{font-size:12px;color:var(--muted);font-family:var(--mono);}
   .toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px;background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:10px 12px;}
   .toolbar select{width:auto;min-width:160px;}
+  .cvebar{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;}
 
   .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px;}
   .kpi{background:linear-gradient(180deg,var(--panel),var(--panel-2));border:1px solid var(--line);border-radius:13px;padding:14px 16px;position:relative;overflow:hidden;}
@@ -338,7 +339,9 @@
   </div>
   <div class="panels prow2" style="margin-bottom:14px">
     <div class="panel"><div class="ph"><h3 style="margin:0">Flotta per prodotto</h3><span class="cnt" id="pFleetCnt"></span></div><div id="pFleet"></div></div>
-    <div class="panel"><div class="ph"><h3 style="margin:0">CVE correlate (recenti)</h3><span class="cnt" id="pCveCnt"></span></div><div class="feed" id="pCve"></div></div>
+    <div class="panel"><div class="ph"><h3 style="margin:0">CVE correlate (recenti)</h3><span class="cnt" id="pCveCnt"></span></div>
+      <div class="cvebar"><span class="muted small" id="cveMeta">—</span><span class="grow"></span><button class="btn sm ghost" id="importCveBtn">Importa CVE (NVD)</button></div>
+      <div class="feed" id="pCve"></div></div>
   </div>
   <div class="panels">
     <div class="panel"><div class="ph"><h3 style="margin:0">Ultimi controlli rilevati</h3><span class="cnt" id="pFindCnt"></span></div><div class="feed" id="pFinds"></div></div>
@@ -421,7 +424,11 @@ function renderDashboard(d){
   renderFindFeed(d.recent_findings||[]);
   renderFleet(d.fleet_by_product||{});
   renderCveMatches(d.recent_cve_matches||[]);
+  const lastTxt=c.cve_last_sync?("aggiornato "+fmtDateTime(c.cve_last_sync)):"mai aggiornato";
+  $("#cveMeta").textContent=`${c.cves||0} CVE in archivio · ${lastTxt}`;
 }
+function fmtDateTime(iso){ if(!iso) return "—"; const d=new Date(iso); if(isNaN(d)) return "—";
+  return d.toLocaleString("it-IT",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"}); }
 function renderFleet(map){
   const keys=Object.keys(map), total=keys.reduce((s,k)=>s+map[k],0);
   $("#pFleetCnt").textContent=total?total+" classificati":"";
@@ -521,6 +528,15 @@ async function correlate(){
   else toast("Errore correlazione"+(res.status?` (HTTP ${res.status})`:""));
   await loadOverview();
 }
+async function importCve(){
+  const btn=$("#importCveBtn"); const old=btn.innerHTML; btn.disabled=true; btn.innerHTML='<span class="spinner"></span> avvio…';
+  const res=await apiRaw("POST","/cve/import-nvd-live");
+  btn.disabled=false; btn.innerHTML=old;
+  if(res.data&&res.data.started){ toast("Import CVE da NVD avviato (flotta). Contatore e data si aggiornano tra poco."); setTimeout(loadOverview,8000); setTimeout(loadOverview,25000); }
+  else toast("Errore avvio import CVE"+(res.status?` (HTTP ${res.status})`:""));
+  loadOverview();
+}
+$("#importCveBtn").addEventListener("click",importCve);
 
 /* ====================== DRAWER ====================== */
 function openDrawer(){ $("#drawer").classList.add("open"); $("#drawer").setAttribute("aria-hidden","false");

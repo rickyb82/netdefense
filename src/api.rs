@@ -45,6 +45,7 @@ pub fn router(store: Store) -> Router {
         .route("/alerts", get(list_alerts))
         .route("/cve", post(ingest_cve).get(list_cve))
         .route("/cve/import-nvd", post(import_nvd))
+        .route("/cve/import-nvd-live", post(import_nvd_live))
         .route("/cve/correlate", post(correlate_cve))
         .route("/assets/:id/facts", post(set_facts))
         .route("/assets/:id/snmp-classify", post(snmp_classify))
@@ -516,6 +517,34 @@ async fn list_cve(State(store): State<Store>) -> ApiResult {
 async fn correlate_cve(State(store): State<Store>) -> ApiResult {
     let raised = crate::fleet::run_correlation(&store)?;
     Ok(Json(json!({ "alerts_raised": raised })).into_response())
+}
+
+/// One-click live import: pull CVEs from NVD for every fleet product and
+/// correlate. Runs in the background so the UI returns immediately — the CVE
+/// counter and last-sync time update on the next dashboard refresh.
+async fn import_nvd_live(State(store): State<Store>) -> ApiResult {
+    let cfg = crate::nvd::NvdConfig::from_env();
+    let fetcher = match crate::nvd::ReqwestFetcher::new() {
+        Ok(f) => f,
+        Err(e) => {
+            return Ok((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+                .into_response())
+        }
+    };
+    let bg = store.clone();
+    tokio::spawn(async move {
+        match crate::nvd::poll_once(&bg, &cfg, &fetcher).await {
+            Ok(s) => eprintln!(
+                "netdefense nvd (on-demand): imported {}, alerts {}",
+                s.imported, s.alerts_raised
+            ),
+            Err(e) => eprintln!("netdefense nvd (on-demand): {e}"),
+        }
+    });
+    Ok(Json(json!({ "started": true })).into_response())
 }
 
 #[derive(Deserialize)]

@@ -1033,6 +1033,7 @@ impl Store {
                 .group_map("SELECT status, COUNT(*) FROM scans GROUP BY status")?,
             cves: self.scalar_i64("SELECT COUNT(*) FROM cves")?,
             cve_matches: self.scalar_i64("SELECT COUNT(*) FROM cve_matches")?,
+            cve_last_sync: self.cve_last_sync()?.map(|t| ts(&t)),
         })
     }
 
@@ -1161,6 +1162,19 @@ impl Store {
         self.group_map("SELECT product, COUNT(*) FROM device_facts GROUP BY product")
     }
 
+    /// Most recent CVE feed sync time across all products (None if never synced).
+    pub fn cve_last_sync(&self) -> Result<Option<DateTime<Utc>>> {
+        let conn = self.lock()?;
+        let v: Option<String> =
+            conn.query_row("SELECT MAX(last_run_at) FROM cve_sync_state", [], |r| {
+                r.get::<_, Option<String>>(0)
+            })?;
+        match v {
+            Some(s) => Ok(Some(pts(&s)?)),
+            None => Ok(None),
+        }
+    }
+
     /// Most recent CVE↔device matches, joined with the CVE and asset, for the feed.
     pub fn recent_cve_matches(&self, limit: i64) -> Result<Vec<RecentCveMatch>> {
         let conn = self.lock()?;
@@ -1216,6 +1230,8 @@ pub struct OverviewCounts {
     pub scans_by_status: BTreeMap<String, i64>,
     pub cves: i64,
     pub cve_matches: i64,
+    /// RFC3339 time of the most recent CVE feed sync, or null if never synced.
+    pub cve_last_sync: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
