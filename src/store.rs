@@ -319,6 +319,39 @@ impl Store {
             .next())
     }
 
+    /// Change an asset's kind/value (its scan target). Authorization is handled
+    /// separately by the caller (changing the target should re-require it).
+    pub fn set_asset_target(&self, id: Id, kind: AssetKind, value: &str) -> Result<()> {
+        self.lock()?.execute(
+            "UPDATE assets SET kind=?2, value=?3 WHERE id=?1",
+            params![id.to_string(), kind.as_str(), value],
+        )?;
+        Ok(())
+    }
+
+    /// Delete an asset and everything that references it (findings, alerts,
+    /// scans, schedules, facts, baselines, CVE matches), atomically.
+    pub fn delete_asset(&self, id: Id) -> Result<()> {
+        let aid = id.to_string();
+        let mut conn = self.lock()?;
+        let tx = conn.transaction()?;
+        for sql in [
+            "DELETE FROM findings WHERE asset_id=?1",
+            "DELETE FROM alerts WHERE asset_id=?1",
+            "DELETE FROM scans WHERE asset_id=?1",
+            "DELETE FROM schedules WHERE asset_id=?1",
+            "DELETE FROM device_facts WHERE asset_id=?1",
+            "DELETE FROM web_baselines WHERE asset_id=?1",
+            "DELETE FROM cve_matches WHERE asset_id=?1",
+            "DELETE FROM vuln_candidates WHERE asset_id=?1",
+            "DELETE FROM assets WHERE id=?1",
+        ] {
+            tx.execute(sql, params![aid])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn update_asset_authorization(
         &self,
         id: Id,
@@ -1122,6 +1155,47 @@ mod tests {
         assert_eq!(got.value, "203.0.113.1");
         assert_eq!(got.auth_status, AuthStatus::Active);
         assert_eq!(got.roe_reference.as_deref(), Some("RoE-1"));
+    }
+
+    #[test]
+    fn set_target_and_delete_cascade() {
+        let s = mem();
+        let aid = seed_asset(&s);
+        // rename target
+        s.set_asset_target(aid, AssetKind::Domain, "new.example")
+            .unwrap();
+        let got = s.get_asset(aid).unwrap().unwrap();
+        assert_eq!(got.value, "new.example");
+        assert_eq!(got.kind, AssetKind::Domain);
+
+        // give it a dependent row, then delete — must not FK-fail and must vanish
+        let scan_id = Uuid::new_v4();
+        s.insert_scan(&Scan {
+            id: scan_id,
+            asset_id: aid,
+            kind: ScanKind::ExternalSurface,
+            status: ScanStatus::Completed,
+            started_at: Utc::now(),
+            finished_at: Some(Utc::now()),
+            note: None,
+        })
+        .unwrap();
+        s.insert_finding(&Finding {
+            id: Uuid::new_v4(),
+            scan_id,
+            asset_id: aid,
+            kind: "open_port".into(),
+            key: "tcp/22".into(),
+            title: "x".into(),
+            detail: "x".into(),
+            severity: Severity::Info,
+            observed_at: Utc::now(),
+        })
+        .unwrap();
+
+        s.delete_asset(aid).unwrap();
+        assert!(s.get_asset(aid).unwrap().is_none());
+        assert!(s.list_findings_for_asset(aid).unwrap().is_empty());
     }
 
     #[test]

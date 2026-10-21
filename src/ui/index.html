@@ -37,6 +37,8 @@
   button{background:var(--accent);color:var(--accent-ink);border:1px solid transparent;border-radius:8px;padding:9px 14px;cursor:pointer;font-weight:600;white-space:nowrap;}
   button.ghost{background:transparent;color:var(--accent);border-color:var(--accent);}
   button.sm{padding:5px 10px;font-size:12px;font-weight:500;}
+  button.danger{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 50%,var(--line));background:transparent;}
+  .actions{display:flex;gap:6px;flex-wrap:wrap;}
   button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
   .cols{display:grid;grid-template-columns:340px 1fr;gap:16px;align-items:start;margin-top:16px;}
   .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 1px 2px rgba(16,32,48,.06);padding:16px;}
@@ -109,7 +111,7 @@
       <div class="card">
         <div class="hdr-row"><h2>Device del cliente</h2><span class="count-badge" id="devCount">0</span></div>
         <div class="table-scroll"><table>
-          <thead><tr><th>Device</th><th>Tipo</th><th>Stato</th><th>Azione</th></tr></thead>
+          <thead><tr><th>Device</th><th>Tipo</th><th>Stato</th><th>Azioni</th></tr></thead>
           <tbody id="devRows"></tbody>
         </table></div>
         <div class="empty" id="devEmpty" hidden>Nessun device per questo cliente. Aggiungine uno sopra.</div>
@@ -180,6 +182,21 @@ async function authorize(assetId){
     await loadDevices(state.activeId); toast("Device autorizzato"); }
   catch(e){ toast("Errore: "+e.message); }
 }
+async function editDevice(assetId){
+  const d=state.devices.find((x)=>x.id===assetId); if(!d) return;
+  const value=prompt(`Nuovo indirizzo/host (tipo: ${d.kind}).\nCambiando il target l'autorizzazione torna "in attesa".`, d.value);
+  if(value===null) return; if(!value.trim()) return toast("Il valore non può essere vuoto");
+  try{ await api("PATCH",`/assets/${assetId}`,{kind:d.kind,value:value.trim()});
+    await loadDevices(state.activeId); toast("Device modificato"); }
+  catch(e){ toast("Errore: "+e.message); }
+}
+async function removeDevice(assetId){
+  const d=state.devices.find((x)=>x.id===assetId);
+  if(!confirm(`Rimuovere il device ${d?d.value:""}? Verranno eliminati anche scan, findings e alert collegati.`)) return;
+  try{ await api("DELETE",`/assets/${assetId}`);
+    await loadDevices(state.activeId); toast("Device rimosso"); }
+  catch(e){ toast("Errore: "+e.message); }
+}
 
 function renderClients(){
   $("#clientCount").textContent=state.clients.length;
@@ -194,15 +211,20 @@ function renderDevices(){
   $("#devCount").textContent=state.devices.length;
   $("#devRows").innerHTML=state.devices.map((d)=>{
     const act=d.auth_status==="active";
-    const action=act?`<span class="muted" style="font-size:12px">—</span>`:`<button class="sm ghost" data-auth="${esc(d.id)}">Autorizza</button>`;
+    const auth=act?"":`<button class="sm ghost" data-auth="${esc(d.id)}">Autorizza</button>`;
     return `<tr><td class="mono">${esc(d.value)}</td><td class="muted">${esc(d.kind)}</td>
-      <td><span class="pill ${act?"active":""}">${act?"autorizzato":"in attesa"}</span></td><td>${action}</td></tr>`;
+      <td><span class="pill ${act?"active":""}">${act?"autorizzato":"in attesa"}</span></td>
+      <td><div class="actions">${auth}<button class="sm ghost" data-edit="${esc(d.id)}">Modifica</button><button class="sm danger" data-del="${esc(d.id)}">Rimuovi</button></div></td></tr>`;
   }).join("");
   $("#devEmpty").hidden=state.devices.length>0||!active;
 }
 
 $("#clientList").addEventListener("click",(e)=>{const b=e.target.closest("[data-id]");if(b)selectClient(b.dataset.id);});
-$("#devRows").addEventListener("click",(e)=>{const b=e.target.closest("[data-auth]");if(b)authorize(b.dataset.auth);});
+$("#devRows").addEventListener("click",(e)=>{
+  const a=e.target.closest("[data-auth]"); if(a) return authorize(a.dataset.auth);
+  const ed=e.target.closest("[data-edit]"); if(ed) return editDevice(ed.dataset.edit);
+  const rm=e.target.closest("[data-del]"); if(rm) return removeDevice(rm.dataset.del);
+});
 $("#addClientBtn").addEventListener("click",addClient);
 $("#addDeviceBtn").addEventListener("click",addDevice);
 $("#addBulkBtn").addEventListener("click",addBulk);

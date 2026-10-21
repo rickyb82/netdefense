@@ -25,7 +25,10 @@ pub fn router(store: Store) -> Router {
         .route("/clients", post(create_client).get(list_clients))
         .route("/clients/:id/assets", post(add_asset).get(list_assets))
         .route("/clients/:id/assets/bulk", post(bulk_add_assets))
-        .route("/assets/:id", get(get_asset))
+        .route(
+            "/assets/:id",
+            get(get_asset).patch(update_asset).delete(remove_asset),
+        )
         .route("/assets/:id/authorize", post(authorize_asset))
         .route("/assets/:id/scan", post(trigger_scan))
         .route("/assets/:id/findings", get(asset_findings))
@@ -197,6 +200,47 @@ async fn get_asset(State(store): State<Store>, Path(id): Path<Uuid>) -> ApiResul
         Some(a) => Ok(Json(a).into_response()),
         None => Ok(not_found("asset")),
     }
+}
+
+#[derive(Deserialize)]
+struct UpdateAsset {
+    kind: AssetKind,
+    value: String,
+}
+
+/// Edit a device's kind/value. If the scan target (value) changes, its
+/// authorization is reset to Pending — the old RoE no longer covers the new
+/// target, so it must be re-authorised before any scan.
+async fn update_asset(
+    State(store): State<Store>,
+    Path(id): Path<Uuid>,
+    Json(b): Json<UpdateAsset>,
+) -> ApiResult {
+    let Some(old) = store.get_asset(id)? else {
+        return Ok(not_found("asset"));
+    };
+    let value = b.value.trim();
+    if value.is_empty() {
+        return Ok((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({ "error": "il valore del device non può essere vuoto" })),
+        )
+            .into_response());
+    }
+    store.set_asset_target(id, b.kind, value)?;
+    if value != old.value {
+        store.update_asset_authorization(id, AuthStatus::Pending, None, None, None, None)?;
+    }
+    Ok(Json(store.get_asset(id)?).into_response())
+}
+
+/// Remove a device and everything tied to it (scans, findings, alerts, etc.).
+async fn remove_asset(State(store): State<Store>, Path(id): Path<Uuid>) -> ApiResult {
+    if store.get_asset(id)?.is_none() {
+        return Ok(not_found("asset"));
+    }
+    store.delete_asset(id)?;
+    Ok(Json(json!({ "deleted": id })).into_response())
 }
 
 #[derive(Deserialize)]
