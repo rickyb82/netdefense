@@ -512,6 +512,231 @@ pub fn registry() -> Vec<ToolDef> {
                 Ok(a)
             },
         },
+        // ---------------- template / vuln scanning ----------------
+        ToolDef {
+            name: "nuclei",
+            bin: "nuclei",
+            description: "Nuclei template-based vulnerability scanner (CVEs, exposures, misconfigs, default creds).",
+            schema: tool_schema(
+                json!({
+                    "target": { "type": "string", "description": "Target URL/host (-u)." },
+                    "severity": { "type": "string", "description": "Filter by severity (-severity), e.g. \"critical,high\"." },
+                    "tags": { "type": "string", "description": "Template tags (-tags), e.g. \"cve,exposure\"." },
+                    "rate_limit": { "type": "integer", "description": "Max requests/sec (-rl)." }
+                }),
+                &["target"],
+            ),
+            build: |v| {
+                let mut a = Vec::new();
+                push_kv(&mut a, "-u", &req(v, "target")?);
+                if let Some(sev) = s(v, "severity") { push_kv(&mut a, "-severity", &sev); }
+                if let Some(tags) = s(v, "tags") { push_kv(&mut a, "-tags", &tags); }
+                if let Some(rl) = n(v, "rate_limit") { push_kv(&mut a, "-rl", &rl.to_string()); }
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        // ---------------- malware / webshell / host forensics ----------------
+        ToolDef {
+            name: "yara",
+            bin: "yara",
+            description: "YARA: scan files/dirs against rules (e.g. webshell/malware signatures).",
+            schema: tool_schema(
+                json!({
+                    "rules": { "type": "string", "description": "Path to a YARA rules file (.yar)." },
+                    "target": { "type": "string", "description": "File or directory to scan." },
+                    "recursive": { "type": "boolean", "description": "Recurse into directories (-r)." }
+                }),
+                &["rules", "target"],
+            ),
+            build: |v| {
+                let mut a = Vec::new();
+                if b(v, "recursive") { a.push("-r".into()); }
+                a.extend(extra(v));
+                a.push(req(v, "rules")?);
+                a.push(req(v, "target")?);
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "clamscan",
+            bin: "clamscan",
+            description: "ClamAV scanner: find known malware/webshells in files or a web root.",
+            schema: tool_schema(
+                json!({
+                    "target": { "type": "string", "description": "File or directory to scan." },
+                    "recursive": { "type": "boolean", "description": "Scan directories recursively (-r)." },
+                    "infected_only": { "type": "boolean", "description": "Only print infected files (-i)." }
+                }),
+                &["target"],
+            ),
+            build: |v| {
+                let mut a = Vec::new();
+                if b(v, "recursive") { a.push("-r".into()); }
+                if b(v, "infected_only") { a.push("-i".into()); }
+                a.extend(extra(v));
+                a.push(req(v, "target")?);
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "searchsploit",
+            bin: "searchsploit",
+            description: "searchsploit: look up known exploits (Exploit-DB) by term or CVE.",
+            schema: tool_schema(
+                json!({
+                    "query": { "type": "string", "description": "Search terms, or a CVE id when `cve` is true." },
+                    "cve": { "type": "boolean", "description": "Treat the query as a CVE id (--cve)." },
+                    "json": { "type": "boolean", "description": "JSON output (-j)." }
+                }),
+                &["query"],
+            ),
+            build: |v| {
+                let mut a = Vec::new();
+                if b(v, "cve") { a.push("--cve".into()); }
+                if b(v, "json") { a.push("-j".into()); }
+                a.extend(extra(v));
+                let q = req(v, "query")?;
+                for term in q.split_whitespace() {
+                    a.push(term.to_string());
+                }
+                Ok(a)
+            },
+        },
+        // ---------------- fast recon (ProjectDiscovery) ----------------
+        ToolDef {
+            name: "httpx",
+            bin: "httpx",
+            description: "httpx: fast HTTP probing/fingerprint (title, tech, status) of hosts.",
+            schema: tool_schema(
+                json!({
+                    "target": { "type": "string", "description": "Target host or URL (-u)." },
+                    "title": { "type": "boolean", "description": "Show page title (-title)." },
+                    "tech_detect": { "type": "boolean", "description": "Detect technologies (-td)." },
+                    "status_code": { "type": "boolean", "description": "Show status code (-sc)." }
+                }),
+                &["target"],
+            ),
+            build: |v| {
+                let mut a = Vec::new();
+                push_kv(&mut a, "-u", &req(v, "target")?);
+                if b(v, "title") { a.push("-title".into()); }
+                if b(v, "tech_detect") { a.push("-td".into()); }
+                if b(v, "status_code") { a.push("-sc".into()); }
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "naabu",
+            bin: "naabu",
+            description: "naabu: fast port scanner (pairs with httpx/nuclei).",
+            schema: tool_schema(
+                json!({
+                    "target": { "type": "string", "description": "Host or CIDR (-host)." },
+                    "ports": { "type": "string", "description": "Port spec (-p), e.g. \"80,443,8080\"." },
+                    "top_ports": { "type": "integer", "description": "Scan top N ports (-top-ports)." },
+                    "rate": { "type": "integer", "description": "Packets per second (-rate)." }
+                }),
+                &["target"],
+            ),
+            build: |v| {
+                let mut a = Vec::new();
+                push_kv(&mut a, "-host", &req(v, "target")?);
+                if let Some(p) = s(v, "ports") { push_kv(&mut a, "-p", &p); }
+                if let Some(tp) = n(v, "top_ports") { push_kv(&mut a, "-top-ports", &tp.to_string()); }
+                if let Some(r) = n(v, "rate") { push_kv(&mut a, "-rate", &r.to_string()); }
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "subfinder",
+            bin: "subfinder",
+            description: "subfinder: passive subdomain enumeration.",
+            schema: tool_schema(
+                json!({
+                    "domain": { "type": "string", "description": "Root domain (-d)." },
+                    "all_sources": { "type": "boolean", "description": "Use all sources (-all)." },
+                    "recursive": { "type": "boolean", "description": "Recursive enumeration (-recursive)." }
+                }),
+                &["domain"],
+            ),
+            build: |v| {
+                let mut a = Vec::new();
+                push_kv(&mut a, "-d", &req(v, "domain")?);
+                if b(v, "all_sources") { a.push("-all".into()); }
+                if b(v, "recursive") { a.push("-recursive".into()); }
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "dnsx",
+            bin: "dnsx",
+            description: "dnsx: fast DNS resolution/queries (A/AAAA/CNAME, with responses).",
+            schema: tool_schema(
+                json!({
+                    "domain": { "type": "string", "description": "Domain to query (-d)." },
+                    "a": { "type": "boolean", "description": "A records (-a)." },
+                    "aaaa": { "type": "boolean", "description": "AAAA records (-aaaa)." },
+                    "cname": { "type": "boolean", "description": "CNAME records (-cname)." },
+                    "resp": { "type": "boolean", "description": "Show the response value (-resp)." }
+                }),
+                &["domain"],
+            ),
+            build: |v| {
+                let mut a = Vec::new();
+                push_kv(&mut a, "-d", &req(v, "domain")?);
+                if b(v, "a") { a.push("-a".into()); }
+                if b(v, "aaaa") { a.push("-aaaa".into()); }
+                if b(v, "cname") { a.push("-cname".into()); }
+                if b(v, "resp") { a.push("-resp".into()); }
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        // ---------------- web: XSS + parameter discovery ----------------
+        ToolDef {
+            name: "dalfox",
+            bin: "dalfox",
+            description: "Dalfox XSS scanner (dalfox url <target>).",
+            schema: tool_schema(
+                json!({
+                    "url": { "type": "string", "description": "Target URL (with parameters)." },
+                    "blind": { "type": "string", "description": "Blind XSS callback URL (-b)." }
+                }),
+                &["url"],
+            ),
+            build: |v| {
+                let mut a = vec!["url".to_string()];
+                a.push(req(v, "url")?);
+                if let Some(bl) = s(v, "blind") { push_kv(&mut a, "-b", &bl); }
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "arjun",
+            bin: "arjun",
+            description: "Arjun: discover hidden HTTP parameters (more injection points to test).",
+            schema: tool_schema(
+                json!({
+                    "url": { "type": "string", "description": "Target URL (-u)." },
+                    "method": { "type": "string", "description": "HTTP method (-m), GET/POST." },
+                    "wordlist": { "type": "string", "description": "Parameter wordlist (-w)." }
+                }),
+                &["url"],
+            ),
+            build: |v| {
+                let mut a = Vec::new();
+                push_kv(&mut a, "-u", &req(v, "url")?);
+                if let Some(m) = s(v, "method") { push_kv(&mut a, "-m", &m); }
+                if let Some(w) = s(v, "wordlist") { push_kv(&mut a, "-w", &w); }
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
     ]
 }
 
@@ -576,6 +801,57 @@ mod tests {
         // feroxbuster needs a url
         assert!(build("feroxbuster", json!({})).is_err());
         assert!(build("feroxbuster", json!({ "url": "http://x/" })).is_ok());
+    }
+
+    #[test]
+    fn control_batch_registered_and_builds() {
+        let names: Vec<_> = registry().iter().map(|t| t.name).collect();
+        for n in [
+            "nuclei",
+            "yara",
+            "clamscan",
+            "searchsploit",
+            "httpx",
+            "naabu",
+            "subfinder",
+            "dnsx",
+            "dalfox",
+            "arjun",
+        ] {
+            assert!(names.contains(&n), "missing tool {n}");
+        }
+        // nuclei targets via -u
+        let nu = build(
+            "nuclei",
+            json!({ "target": "https://x", "severity": "high" }),
+        )
+        .unwrap();
+        assert_eq!(
+            nu.windows(2).find(|w| w[0] == "-u").unwrap()[1],
+            "https://x"
+        );
+        assert!(nu.contains(&"-severity".to_string()));
+        // yara takes rules then target positionally
+        let y = build(
+            "yara",
+            json!({ "rules": "web.yar", "target": "/var/www", "recursive": true }),
+        )
+        .unwrap();
+        assert_eq!(
+            &y[y.len() - 2..],
+            &["web.yar".to_string(), "/var/www".to_string()]
+        );
+        assert!(y.contains(&"-r".to_string()));
+        // dalfox: `url <target>`
+        let d = build("dalfox", json!({ "url": "http://x/?q=1" })).unwrap();
+        assert_eq!(d[0], "url");
+        assert_eq!(d[1], "http://x/?q=1");
+        // searchsploit splits the query into terms
+        let ss = build("searchsploit", json!({ "query": "apache 2.4" })).unwrap();
+        assert!(ss.contains(&"apache".to_string()) && ss.contains(&"2.4".to_string()));
+        // required fields enforced
+        assert!(build("nuclei", json!({})).is_err());
+        assert!(build("subfinder", json!({})).is_err());
     }
 
     #[test]

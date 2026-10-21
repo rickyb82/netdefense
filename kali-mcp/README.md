@@ -36,6 +36,16 @@ the underlying binary.
 | `enum4linux_ng`  | `enum4linux-ng` | SMB/NetBIOS/LDAP enumeration         |
 | `amass`          | `amass`    | Subdomain enumeration (`amass enum`)      |
 | `feroxbuster`    | `feroxbuster` | Fast recursive content discovery       |
+| `nuclei`         | `nuclei`   | Template-based vuln scanner (CVEs, exposures) |
+| `yara`           | `yara`     | Scan files for webshell/malware signatures |
+| `clamscan`       | `clamscan` | ClamAV malware/webshell scan of files     |
+| `searchsploit`   | `searchsploit` | Exploit-DB lookup by term/CVE         |
+| `httpx`          | `httpx`    | Fast HTTP probing/fingerprint             |
+| `naabu`          | `naabu`    | Fast port scanner                         |
+| `subfinder`      | `subfinder`| Passive subdomain enumeration             |
+| `dnsx`           | `dnsx`     | Fast DNS resolution/queries               |
+| `dalfox`         | `dalfox`   | XSS scanner                               |
+| `arjun`          | `arjun`    | Hidden HTTP parameter discovery           |
 
 Every tool also accepts:
 - `extra_args`: an array of raw CLI flags appended verbatim — the escape hatch
