@@ -54,6 +54,32 @@ the underlying binary.
 | `netexec`        | `nxc`      | SMB/WinRM/LDAP/SSH enum + cred testing    |
 | `smbmap`         | `smbmap`   | SMB share enumeration                     |
 | `joomscan`       | `joomscan` | Joomla CMS vulnerability scanner          |
+| `fierce`         | `fierce`   | DNS reconnaissance                        |
+| `dnsenum`        | `dnsenum`  | DNS enumeration                           |
+| `theharvester`   | `theHarvester` | OSINT emails/hosts/subdomains         |
+| `assetfinder`    | `assetfinder` | Related subdomains                     |
+| `waybackurls`    | `waybackurls` | Known URLs from Wayback                 |
+| `gospider`       | `gospider` | Web crawler                               |
+| `dirsearch`      | `dirsearch`| Web path brute forcer                     |
+| `wfuzz`          | `wfuzz`    | Web fuzzer (FUZZ keyword)                 |
+| `wapiti`         | `wapiti`   | Web app vulnerability scanner             |
+| `xsstrike`       | `xsstrike` | XSS detection                             |
+| `commix`         | `commix`   | Command-injection testing                 |
+| `cmseek`         | `cmseek`   | CMS detection/enumeration                 |
+| `droopescan`     | `droopescan` | Drupal/SilverStripe/etc scanner         |
+| `rustscan`       | `rustscan` | Very fast port scanner                    |
+| `netdiscover`    | `netdiscover` | ARP host discovery                     |
+| `arp_scan`       | `arp-scan` | Local-network ARP discovery               |
+| `snmpwalk`       | `snmpwalk` | Walk an SNMP tree                         |
+| `onesixtyone`    | `onesixtyone` | SNMP community scanner                  |
+| `smbclient`      | `smbclient`| List SMB shares                           |
+| `rpcclient`      | `rpcclient`| MS-RPC client queries                     |
+| `ldapsearch`     | `ldapsearch` | Query LDAP/AD                           |
+| `kerbrute`       | `kerbrute` | Kerberos user enum / spraying             |
+| `medusa`         | `medusa`   | Parallel login brute forcer               |
+| `cewl`           | `cewl`     | Custom wordlist from a site               |
+| `hashid`         | `hashid`   | Identify hash types                       |
+| `sslyze`         | `sslyze`   | Deep TLS configuration analysis           |
 
 Every tool also accepts:
 - `extra_args`: an array of raw CLI flags appended verbatim — the escape hatch

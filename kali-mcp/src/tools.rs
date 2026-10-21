@@ -901,6 +901,376 @@ pub fn registry() -> Vec<ToolDef> {
                 Ok(a)
             },
         },
+        // ================= extended catalogue =================
+        // ---- DNS / subdomain / OSINT ----
+        ToolDef {
+            name: "fierce",
+            bin: "fierce",
+            description: "fierce: DNS reconnaissance (subdomains, zone info).",
+            schema: tool_schema(json!({ "domain": {"type":"string","description":"Target domain (--domain)."} }), &["domain"]),
+            build: |v| {
+                let mut a = Vec::new();
+                push_kv(&mut a, "--domain", &req(v, "domain")?);
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "dnsenum",
+            bin: "dnsenum",
+            description: "dnsenum: DNS enumeration (records, subdomains, zone transfer).",
+            schema: tool_schema(json!({ "domain": {"type":"string","description":"Target domain."} }), &["domain"]),
+            build: |v| {
+                let mut a = Vec::new();
+                a.extend(extra(v));
+                a.push(req(v, "domain")?);
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "theharvester",
+            bin: "theHarvester",
+            description: "theHarvester: OSINT emails/hosts/subdomains from public sources.",
+            schema: tool_schema(json!({ "domain": {"type":"string"}, "source": {"type":"string","description":"Source (-b), default \"all\"."} }), &["domain"]),
+            build: |v| {
+                let mut a = Vec::new();
+                push_kv(&mut a, "-d", &req(v, "domain")?);
+                push_kv(&mut a, "-b", &s(v, "source").unwrap_or_else(|| "all".into()));
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "assetfinder",
+            bin: "assetfinder",
+            description: "assetfinder: find subdomains related to a domain.",
+            schema: tool_schema(json!({ "domain": {"type":"string"}, "subs_only": {"type":"boolean","description":"Only subdomains (--subs-only)."} }), &["domain"]),
+            build: |v| {
+                let mut a = Vec::new();
+                if b(v, "subs_only") { a.push("--subs-only".into()); }
+                a.extend(extra(v));
+                a.push(req(v, "domain")?);
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "waybackurls",
+            bin: "waybackurls",
+            description: "waybackurls: known URLs for a domain from the Wayback Machine.",
+            schema: tool_schema(json!({ "domain": {"type":"string"} }), &["domain"]),
+            build: |v| {
+                let mut a = Vec::new();
+                a.extend(extra(v));
+                a.push(req(v, "domain")?);
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "gospider",
+            bin: "gospider",
+            description: "gospider: fast web crawler.",
+            schema: tool_schema(json!({ "url": {"type":"string","description":"Seed URL (-s)."}, "depth": {"type":"integer","description":"Crawl depth (-d)."} }), &["url"]),
+            build: |v| {
+                let mut a = Vec::new();
+                push_kv(&mut a, "-s", &req(v, "url")?);
+                if let Some(d) = n(v, "depth") { push_kv(&mut a, "-d", &d.to_string()); }
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        // ---- web content / fuzzing ----
+        ToolDef {
+            name: "dirsearch",
+            bin: "dirsearch",
+            description: "dirsearch: web path/directory brute forcer.",
+            schema: tool_schema(json!({ "url": {"type":"string"}, "extensions": {"type":"string","description":"-e, e.g. \"php,txt\"."}, "wordlist": {"type":"string","description":"-w path."} }), &["url"]),
+            build: |v| {
+                let mut a = Vec::new();
+                push_kv(&mut a, "-u", &req(v, "url")?);
+                if let Some(e) = s(v, "extensions") { push_kv(&mut a, "-e", &e); }
+                if let Some(w) = s(v, "wordlist") { push_kv(&mut a, "-w", &w); }
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "wfuzz",
+            bin: "wfuzz",
+            description: "wfuzz: web fuzzer (url must contain the FUZZ keyword).",
+            schema: tool_schema(json!({ "url": {"type":"string","description":"URL containing FUZZ."}, "wordlist": {"type":"string","description":"-w path."}, "hide_codes": {"type":"string","description":"Hide HTTP codes (--hc)."} }), &["url","wordlist"]),
+            build: |v| {
+                let mut a = Vec::new();
+                push_kv(&mut a, "-w", &req(v, "wordlist")?);
+                if let Some(hc) = s(v, "hide_codes") { push_kv(&mut a, "--hc", &hc); }
+                a.extend(extra(v));
+                let url = req(v, "url")?;
+                if !url.contains("FUZZ") {
+                    return Err("wfuzz `url` must contain the FUZZ keyword".into());
+                }
+                a.push(url);
+                Ok(a)
+            },
+        },
+        // ---- web vuln / CMS ----
+        ToolDef {
+            name: "wapiti",
+            bin: "wapiti",
+            description: "Wapiti: black-box web application vulnerability scanner.",
+            schema: tool_schema(json!({ "url": {"type":"string"}, "modules": {"type":"string","description":"Attack modules (-m)."} }), &["url"]),
+            build: |v| {
+                let mut a = Vec::new();
+                push_kv(&mut a, "-u", &req(v, "url")?);
+                if let Some(m) = s(v, "modules") { push_kv(&mut a, "-m", &m); }
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "xsstrike",
+            bin: "xsstrike",
+            description: "XSStrike: advanced XSS detection.",
+            schema: tool_schema(json!({ "url": {"type":"string"}, "crawl": {"type":"boolean","description":"Crawl the target (--crawl)."} }), &["url"]),
+            build: |v| {
+                let mut a = Vec::new();
+                push_kv(&mut a, "-u", &req(v, "url")?);
+                if b(v, "crawl") { a.push("--crawl".into()); }
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "commix",
+            bin: "commix",
+            description: "commix: command-injection detection/exploitation (runs --batch by default).",
+            schema: tool_schema(json!({ "url": {"type":"string"}, "data": {"type":"string","description":"POST data (--data)."}, "batch": {"type":"boolean","description":"Non-interactive (default true)."} }), &["url"]),
+            build: |v| {
+                let mut a = Vec::new();
+                a.push(format!("--url={}", req(v, "url")?));
+                if let Some(d) = s(v, "data") { a.push(format!("--data={d}")); }
+                if b_default(v, "batch", true) { a.push("--batch".into()); }
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "cmseek",
+            bin: "cmseek",
+            description: "CMSeeK: CMS detection and enumeration.",
+            schema: tool_schema(json!({ "url": {"type":"string"} }), &["url"]),
+            build: |v| {
+                let mut a = Vec::new();
+                push_kv(&mut a, "-u", &req(v, "url")?);
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "droopescan",
+            bin: "droopescan",
+            description: "droopescan: Drupal/SilverStripe/etc CMS scanner.",
+            schema: tool_schema(json!({ "url": {"type":"string"}, "cms": {"type":"string","description":"CMS (default drupal): drupal|silverstripe|wordpress|joomla|moodle."} }), &["url"]),
+            build: |v| {
+                let mut a = vec!["scan".to_string(), s(v, "cms").unwrap_or_else(|| "drupal".into())];
+                push_kv(&mut a, "-u", &req(v, "url")?);
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        // ---- network discovery / scanning ----
+        ToolDef {
+            name: "rustscan",
+            bin: "rustscan",
+            description: "RustScan: very fast port scanner.",
+            schema: tool_schema(json!({ "target": {"type":"string","description":"Address (-a)."}, "ports": {"type":"string","description":"Ports (-p)."} }), &["target"]),
+            build: |v| {
+                let mut a = Vec::new();
+                push_kv(&mut a, "-a", &req(v, "target")?);
+                if let Some(p) = s(v, "ports") { push_kv(&mut a, "-p", &p); }
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "netdiscover",
+            bin: "netdiscover",
+            description: "netdiscover: ARP host discovery on a range.",
+            schema: tool_schema(json!({ "range": {"type":"string","description":"CIDR range (-r)."}, "passive": {"type":"boolean","description":"Passive mode (-p)."} }), &["range"]),
+            build: |v| {
+                let mut a = Vec::new();
+                push_kv(&mut a, "-r", &req(v, "range")?);
+                if b(v, "passive") { a.push("-p".into()); }
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "arp_scan",
+            bin: "arp-scan",
+            description: "arp-scan: discover hosts on the local network via ARP.",
+            schema: tool_schema(json!({ "range": {"type":"string","description":"CIDR range (positional)."}, "localnet": {"type":"boolean","description":"Scan the local net (--localnet)."} }), &[]),
+            build: |v| {
+                let mut a = Vec::new();
+                a.extend(extra(v));
+                if b(v, "localnet") {
+                    a.push("--localnet".into());
+                } else {
+                    a.push(req(v, "range")?);
+                }
+                Ok(a)
+            },
+        },
+        // ---- SNMP ----
+        ToolDef {
+            name: "snmpwalk",
+            bin: "snmpwalk",
+            description: "snmpwalk: walk an SNMP tree on a device.",
+            schema: tool_schema(json!({ "target": {"type":"string"}, "community": {"type":"string","description":"Community (-c)."}, "version": {"type":"string","description":"SNMP version (-v), default 2c."}, "oid": {"type":"string","description":"Base OID (optional)."} }), &["target","community"]),
+            build: |v| {
+                let mut a = Vec::new();
+                push_kv(&mut a, "-v", &s(v, "version").unwrap_or_else(|| "2c".into()));
+                push_kv(&mut a, "-c", &req(v, "community")?);
+                a.extend(extra(v));
+                a.push(req(v, "target")?);
+                if let Some(oid) = s(v, "oid") { a.push(oid); }
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "onesixtyone",
+            bin: "onesixtyone",
+            description: "onesixtyone: fast SNMP community-string scanner.",
+            schema: tool_schema(json!({ "target": {"type":"string"}, "community": {"type":"string","description":"Community to try (optional)."} }), &["target"]),
+            build: |v| {
+                let mut a = Vec::new();
+                a.extend(extra(v));
+                a.push(req(v, "target")?);
+                if let Some(c) = s(v, "community") { a.push(c); }
+                Ok(a)
+            },
+        },
+        // ---- SMB / AD / LDAP ----
+        ToolDef {
+            name: "smbclient",
+            bin: "smbclient",
+            description: "smbclient: list SMB shares on a host (-L, anonymous by default).",
+            schema: tool_schema(json!({ "target": {"type":"string"}, "username": {"type":"string","description":"-U user."}, "no_pass": {"type":"boolean","description":"No password (-N), default true."} }), &["target"]),
+            build: |v| {
+                let mut a = Vec::new();
+                a.push("-L".into());
+                a.push(format!("//{}", req(v, "target")?));
+                if let Some(u) = s(v, "username") { push_kv(&mut a, "-U", &u); }
+                if b_default(v, "no_pass", true) { a.push("-N".into()); }
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "rpcclient",
+            bin: "rpcclient",
+            description: "rpcclient: MS-RPC client (use `command` for non-interactive queries).",
+            schema: tool_schema(json!({ "target": {"type":"string"}, "username": {"type":"string","description":"-U user (empty = anonymous)."}, "no_pass": {"type":"boolean","description":"No password (-N), default true."}, "command": {"type":"string","description":"Command to run (-c), e.g. \"enumdomusers\"."} }), &["target"]),
+            build: |v| {
+                let mut a = Vec::new();
+                push_kv(&mut a, "-U", &s(v, "username").unwrap_or_default());
+                if b_default(v, "no_pass", true) { a.push("-N".into()); }
+                if let Some(c) = s(v, "command") { push_kv(&mut a, "-c", &c); }
+                a.extend(extra(v));
+                a.push(req(v, "target")?);
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "ldapsearch",
+            bin: "ldapsearch",
+            description: "ldapsearch: query an LDAP/AD directory (simple auth -x).",
+            schema: tool_schema(json!({ "uri": {"type":"string","description":"LDAP URI (-H), e.g. ldap://dc01."}, "base": {"type":"string","description":"Search base (-b)."}, "bind_dn": {"type":"string","description":"Bind DN (-D)."}, "password": {"type":"string","description":"Bind password (-w)."} }), &["uri"]),
+            build: |v| {
+                let mut a = vec!["-x".to_string()];
+                push_kv(&mut a, "-H", &req(v, "uri")?);
+                if let Some(base) = s(v, "base") { push_kv(&mut a, "-b", &base); }
+                if let Some(d) = s(v, "bind_dn") { push_kv(&mut a, "-D", &d); }
+                if let Some(p) = s(v, "password") { push_kv(&mut a, "-w", &p); }
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "kerbrute",
+            bin: "kerbrute",
+            description: "kerbrute: Kerberos pre-auth user enumeration / password spraying.",
+            schema: tool_schema(json!({ "mode": {"type":"string","description":"Subcommand, default userenum."}, "domain": {"type":"string","description":"Realm (-d)."}, "dc": {"type":"string","description":"Domain controller (--dc)."}, "userlist": {"type":"string","description":"Username list (positional)."} }), &["domain","userlist"]),
+            build: |v| {
+                let mut a = vec![s(v, "mode").unwrap_or_else(|| "userenum".into())];
+                push_kv(&mut a, "-d", &req(v, "domain")?);
+                if let Some(dc) = s(v, "dc") { push_kv(&mut a, "--dc", &dc); }
+                a.extend(extra(v));
+                a.push(req(v, "userlist")?);
+                Ok(a)
+            },
+        },
+        // ---- credentials / wordlists / misc ----
+        ToolDef {
+            name: "medusa",
+            bin: "medusa",
+            description: "Medusa: parallel network login brute forcer.",
+            schema: tool_schema(json!({ "target": {"type":"string","description":"-h host."}, "module": {"type":"string","description":"-M module, e.g. ssh."}, "username": {"type":"string","description":"-u user."}, "userlist": {"type":"string","description":"-U file."}, "password": {"type":"string","description":"-p pass."}, "passlist": {"type":"string","description":"-P file."} }), &["target","module"]),
+            build: |v| {
+                let mut a = Vec::new();
+                push_kv(&mut a, "-h", &req(v, "target")?);
+                if let Some(u) = s(v, "username") {
+                    push_kv(&mut a, "-u", &u);
+                } else if let Some(ul) = s(v, "userlist") {
+                    push_kv(&mut a, "-U", &ul);
+                }
+                if let Some(p) = s(v, "password") {
+                    push_kv(&mut a, "-p", &p);
+                } else if let Some(pl) = s(v, "passlist") {
+                    push_kv(&mut a, "-P", &pl);
+                }
+                push_kv(&mut a, "-M", &req(v, "module")?);
+                a.extend(extra(v));
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "cewl",
+            bin: "cewl",
+            description: "CeWL: build a custom wordlist by spidering a site.",
+            schema: tool_schema(json!({ "url": {"type":"string"}, "depth": {"type":"integer","description":"Spider depth (-d)."}, "min_length": {"type":"integer","description":"Min word length (-m)."} }), &["url"]),
+            build: |v| {
+                let mut a = Vec::new();
+                if let Some(d) = n(v, "depth") { push_kv(&mut a, "-d", &d.to_string()); }
+                if let Some(m) = n(v, "min_length") { push_kv(&mut a, "-m", &m.to_string()); }
+                a.extend(extra(v));
+                a.push(req(v, "url")?);
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "hashid",
+            bin: "hashid",
+            description: "hashid: identify the type of a hash.",
+            schema: tool_schema(json!({ "hash": {"type":"string"}, "mode": {"type":"boolean","description":"Show hashcat/john modes (-m)."} }), &["hash"]),
+            build: |v| {
+                let mut a = Vec::new();
+                if b(v, "mode") { a.push("-m".into()); }
+                a.extend(extra(v));
+                a.push(req(v, "hash")?);
+                Ok(a)
+            },
+        },
+        ToolDef {
+            name: "sslyze",
+            bin: "sslyze",
+            description: "SSLyze: fast, deep TLS configuration analysis.",
+            schema: tool_schema(json!({ "target": {"type":"string","description":"host:port."} }), &["target"]),
+            build: |v| {
+                let mut a = Vec::new();
+                a.extend(extra(v));
+                a.push(req(v, "target")?);
+                Ok(a)
+            },
+        },
     ]
 }
 
@@ -1055,6 +1425,69 @@ mod tests {
         assert_eq!(g[0], "single");
         assert_eq!(g[1], "https://x");
         assert!(build("katana", json!({})).is_err());
+    }
+
+    #[test]
+    fn extended_catalogue_registered_and_builds() {
+        let names: Vec<_> = registry().iter().map(|t| t.name).collect();
+        for n in [
+            "fierce",
+            "dnsenum",
+            "theharvester",
+            "assetfinder",
+            "waybackurls",
+            "gospider",
+            "dirsearch",
+            "wfuzz",
+            "wapiti",
+            "xsstrike",
+            "commix",
+            "cmseek",
+            "droopescan",
+            "rustscan",
+            "netdiscover",
+            "arp_scan",
+            "snmpwalk",
+            "onesixtyone",
+            "smbclient",
+            "rpcclient",
+            "ldapsearch",
+            "kerbrute",
+            "medusa",
+            "cewl",
+            "hashid",
+            "sslyze",
+        ] {
+            assert!(names.contains(&n), "missing tool {n}");
+        }
+        // wfuzz requires FUZZ in the url
+        assert!(build("wfuzz", json!({ "url": "http://x/a", "wordlist": "/w" })).is_err());
+        assert!(build("wfuzz", json!({ "url": "http://x/FUZZ", "wordlist": "/w" })).is_ok());
+        // medusa needs target + module
+        assert!(build("medusa", json!({ "target": "10.0.0.1" })).is_err());
+        let m = build(
+            "medusa",
+            json!({ "target": "10.0.0.1", "module": "ssh", "username": "root" }),
+        )
+        .unwrap();
+        assert_eq!(m.windows(2).find(|w| w[0] == "-M").unwrap()[1], "ssh");
+        // droopescan: `scan <cms> -u <url>`
+        let d = build("droopescan", json!({ "url": "http://x" })).unwrap();
+        assert_eq!(&d[0..2], &["scan".to_string(), "drupal".to_string()]);
+        // snmpwalk: target positional after -v/-c
+        let sw = build(
+            "snmpwalk",
+            json!({ "target": "10.0.0.1", "community": "public" }),
+        )
+        .unwrap();
+        assert_eq!(sw.last().unwrap(), "10.0.0.1");
+        assert!(
+            sw.contains(&"-2c".to_string()) == false
+                && sw.windows(2).find(|w| w[0] == "-v").unwrap()[1] == "2c"
+        );
+        // arp_scan: localnet OR range
+        assert!(build("arp_scan", json!({})).is_err());
+        assert!(build("arp_scan", json!({ "localnet": true })).is_ok());
     }
 
     #[test]
