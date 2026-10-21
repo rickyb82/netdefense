@@ -102,7 +102,9 @@ fn system_prompt() -> Value {
     della piattaforma (nd_add_client, nd_add_device, nd_authorize, nd_scan, nd_list_assets, nd_findings, \
     nd_alerts, nd_overview), la gestione CVE (nd_cve_import per importare da NVD, nd_cve_correlate, \
     nd_cve_list, nd_set_facts per registrare vendor/prodotto/versione di un device), la navigazione internet \
-    (web_fetch per leggere advisory, dettagli CVE o pagine vendor) e TUTTI i tool Kali (nmap_scan, \
+    (web_fetch per leggere advisory, dettagli CVE o pagine vendor), l'accesso SSH ai dispositivi \
+    (ssh_exec per entrare con le credenziali fornite ed eseguire comandi/patch, es. aggiornare RouterOS) \
+    e TUTTI i tool Kali (nmap_scan, \
     masscan_scan, sqlmap, nuclei, nikto, whatweb, dnsrecon, testssl, hydra, snmpwalk, …). Quando servono \
     dati chiamali con i tool e concatena più tool se serve (es. nd_cve_import poi nd_cve_correlate poi \
     nd_alerts). Regole: ogni scansione passa dal gate di autorizzazione (un asset va prima reso 'active' con \

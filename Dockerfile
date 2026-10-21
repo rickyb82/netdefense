@@ -32,6 +32,7 @@ RUN set -eux; \
       enum4linux-ng smbclient samba-common-bin smbmap netexec ldap-utils kerbrute \
       snmp onesixtyone rustscan netdiscover arp-scan naabu httpx-toolkit \
       yara clamav exploitdb gowitness tlsx \
+      openssh-client sshpass \
     ; do apt-get install -y --no-install-recommends "$p" || echo "skip (not in repo): $p"; done; \
     apt-get clean; rm -rf /var/lib/apt/lists/*
 

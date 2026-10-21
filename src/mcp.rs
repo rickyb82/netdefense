@@ -9,6 +9,7 @@
 //! the HTTP API (so scans still pass the authorization gate); Kali tools run as
 //! subprocesses via kali-mcp's runner.
 
+use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -148,6 +149,16 @@ fn native_tools() -> Vec<Value> {
             "inputSchema": obj(json!({ "asset_id": {"type":"string"}, "vendor": {"type":"string"}, "product": {"type":"string"}, "version": {"type":"string"} }), &["asset_id","vendor","product"]) }),
         json!({ "name": "web_fetch", "description": "Fetch a web page over HTTP(S) and return its text (truncated). Use to look up CVE details, vendor advisories or other pages on the internet.",
             "inputSchema": obj(json!({ "url": {"type":"string"}, "max_chars": {"type":"integer"} }), &["url"]) }),
+        json!({ "name": "ssh_exec", "description": "SSH into a device with the given credentials (password or private key) and run a command — e.g. apply a patch/upgrade on an appliance (RouterOS, Linux, …). Credentials stay local; the password is passed via env, not argv.",
+            "inputSchema": obj(json!({
+                "host": {"type":"string"},
+                "username": {"type":"string"},
+                "command": {"type":"string","description":"comando remoto, es. '/system package update install' su RouterOS"},
+                "password": {"type":"string","description":"opzionale (richiede sshpass installato)"},
+                "key_path": {"type":"string","description":"opzionale: path a una chiave privata sul server"},
+                "port": {"type":"integer"},
+                "timeout_secs": {"type":"integer"}
+            }), &["host","username","command"]) }),
     ]
 }
 
@@ -218,6 +229,7 @@ async fn call_native(store: &Store, name: &str, args: &Value) -> Option<Result<S
         "nd_set_facts" => Some(nd_set_facts(store, args)),
         "nd_cve_import" => Some(nd_cve_import(store, args).await),
         "web_fetch" => Some(web_fetch(args).await),
+        "ssh_exec" => Some(ssh_exec(args).await),
         _ => None,
     }
 }
@@ -469,6 +481,150 @@ fn truncate_chars(s: &str, max: usize) -> String {
     }
     let t: String = s.chars().take(max).collect();
     format!("{t}\n…[troncato]")
+}
+
+struct CmdOut {
+    stdout: String,
+    stderr: String,
+    code: Option<i32>,
+    timed_out: bool,
+    not_found: bool,
+}
+
+/// Run a subprocess with an optional environment and a hard timeout. Used for
+/// SSH so the password can be passed via the environment instead of argv.
+async fn run_cmd(
+    bin: &str,
+    args: &[String],
+    env: &[(String, String)],
+    timeout_secs: u64,
+) -> CmdOut {
+    let mut cmd = tokio::process::Command::new(bin);
+    cmd.args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            return CmdOut {
+                stdout: String::new(),
+                stderr: format!("spawn `{bin}`: {e}"),
+                code: None,
+                timed_out: false,
+                not_found: e.kind() == std::io::ErrorKind::NotFound,
+            }
+        }
+    };
+    match tokio::time::timeout(Duration::from_secs(timeout_secs), child.wait_with_output()).await {
+        Ok(Ok(o)) => CmdOut {
+            stdout: String::from_utf8_lossy(&o.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&o.stderr).into_owned(),
+            code: o.status.code(),
+            timed_out: false,
+            not_found: false,
+        },
+        Ok(Err(e)) => CmdOut {
+            stdout: String::new(),
+            stderr: format!("io `{bin}`: {e}"),
+            code: None,
+            timed_out: false,
+            not_found: false,
+        },
+        Err(_) => CmdOut {
+            stdout: String::new(),
+            stderr: format!("`{bin}` timeout dopo {timeout_secs}s"),
+            code: None,
+            timed_out: true,
+            not_found: false,
+        },
+    }
+}
+
+async fn ssh_exec(a: &Value) -> Result<String, String> {
+    let host = greq(a, "host")?;
+    let user = greq(a, "username")?;
+    let command = greq(a, "command")?;
+    let port = a
+        .get("port")
+        .and_then(Value::as_u64)
+        .filter(|p| *p > 0 && *p <= 65535)
+        .unwrap_or(22);
+    let timeout = a
+        .get("timeout_secs")
+        .and_then(Value::as_u64)
+        .filter(|n| *n > 0)
+        .unwrap_or(30);
+    let target = format!("{user}@{host}");
+    let common = vec![
+        "-o".to_string(),
+        "StrictHostKeyChecking=accept-new".to_string(),
+        "-o".to_string(),
+        "ConnectTimeout=10".to_string(),
+        "-p".to_string(),
+        port.to_string(),
+    ];
+
+    let (bin, mut args, env): (&str, Vec<String>, Vec<(String, String)>) =
+        if let Some(key) = gs(a, "key_path") {
+            let mut v = vec![
+                "-i".to_string(),
+                key,
+                "-o".to_string(),
+                "BatchMode=yes".to_string(),
+            ];
+            v.extend(common);
+            ("ssh", v, vec![])
+        } else if let Some(pw) = gs(a, "password") {
+            // sshpass -e reads the password from $SSHPASS, keeping it off argv.
+            let mut v = vec!["-e".to_string(), "ssh".to_string()];
+            v.extend(common);
+            ("sshpass", v, vec![("SSHPASS".to_string(), pw)])
+        } else {
+            let mut v = vec!["-o".to_string(), "BatchMode=yes".to_string()];
+            v.extend(common);
+            ("ssh", v, vec![])
+        };
+    args.push(target.clone());
+    args.push(command);
+
+    let o = run_cmd(bin, &args, &env, timeout).await;
+    if o.not_found {
+        return Err(if bin == "sshpass" {
+            "`sshpass` non installato (serve per l'autenticazione con password). Installalo oppure usa key_path.".into()
+        } else {
+            "`ssh` non trovato sull'host.".into()
+        });
+    }
+    let mut body = format!("$ ssh {target} (porta {port})\n");
+    if !o.stdout.is_empty() {
+        body.push_str(&o.stdout);
+    }
+    if !o.stderr.is_empty() {
+        body.push_str("\n--- stderr ---\n");
+        body.push_str(&o.stderr);
+    }
+    body.push_str(&if o.timed_out {
+        "\n[connessione/comando: timeout]".to_string()
+    } else {
+        format!(
+            "\n[exit code: {}]",
+            o.code.map(|c| c.to_string()).unwrap_or_else(|| "?".into())
+        )
+    });
+    if body.len() > MAX_OUTPUT {
+        let mut end = MAX_OUTPUT;
+        while end > 0 && !body.is_char_boundary(end) {
+            end -= 1;
+        }
+        body.truncate(end);
+        body.push_str("\n…[output troncato]");
+    }
+    Ok(body)
 }
 
 async fn nd_scan(store: &Store, a: &Value) -> Result<String, String> {
